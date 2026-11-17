@@ -169,3 +169,16 @@ input:focus, select:focus { border-color: var(--accent); }
   .stats { gap: 8px; }
   .stat-v { font-size: 15px; }
 }
+
+/* money input with its currency sign */
+.mfield { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.mfield input { flex: 1; min-width: 0; }
+.mpre, .msuf { color: var(--accent); font-weight: 700; white-space: nowrap; }
+.mpre:empty, .msuf:empty { display: none; }
+/* sync */
+.toggle { background: var(--card2); color: var(--muted); border: 1px solid var(--line); }
+.toggle.on { background: var(--accent2); color: #fff; border-color: var(--accent2); }
+.devs { margin: 8px 0; border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+.dev-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; font-size: 13.5px; flex-wrap: wrap; }
+.dev-row + .dev-row { border-top: 1px solid var(--line); }
+.dev-row span { color: var(--muted); font-size: 12.5px; }

@@ -70,7 +70,7 @@ function fileCall(start) { return new Promise((res) => { const id = rid(); fileW
 
 // ---------- app state ----------
 let ST = null;            // synced: { snap, events, dead, set }
-let LOC = { dev: rid(), key: '', last: '', joining: false, pub: '', pubAt: 0 };   // this device only
+let LOC = { dev: rid(), key: '', last: '', joining: false, pub: '', pubAt: 0, auto: true, devs: {} };   // this device only
 let VIEW = { qOff: 0, qDay: 0, rd: [], rdI: 0, rdAfter: null, rdState: 'idle', modal: null, version: '' };
 
 function persist() {
@@ -81,6 +81,7 @@ function persist() {
 }
 function changed(settings) {
   if (settings) ST.set.ts = now();
+  ST.edit = now();                     // last input on this device: the newest input wins when syncing
   normalize(ST);
   persist();
   render();
@@ -295,6 +296,12 @@ function fmtIn(v) {
   return i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
 }
 const parseIn = (s) => +String(s || '').replace(/,/g, '') || 0;
+const moneyField = (attrs, v) => `<span class="mfield"><span class="mpre"></span>${numField(attrs, v, true)}<span class="msuf"></span></span>`;
+function paintCur(root, code) {
+  const f = curFmt(code);
+  root.querySelectorAll('.mpre').forEach((e) => (e.textContent = f.pre.trim()));
+  root.querySelectorAll('.msuf').forEach((e) => (e.textContent = f.suf.trim()));
+}
 const numField = (attrs, v, dec) => `<input type="text" inputmode="${dec ? 'decimal' : 'numeric'}" data-num="${dec ? 1 : 0}" ${attrs} value="${fmtIn(v)}">`;
 function wireNums(root) {
   root.querySelectorAll('input[data-num]').forEach((inp) => {
@@ -331,7 +338,7 @@ function openSettings() {
   const curOpts = CURRENCIES.map((c) => `<option value="${c[0]}" ${c[0] === s.cur ? 'selected' : ''}>${c[0]} — ${c[1]}</option>`).join('');
   const drOpts = DRINKS.map((d) => `<option value="${d[0]}" ${d[0] === s.drink ? 'selected' : ''}>${d[1]}</option>`).join('')
     + `<option value="custom" ${s.drink === 'custom' ? 'selected' : ''}>My own drink…</option>`;
-  const wk = [1, 2, 3, 4, 5, 6, 0].map((d) => `<div class="wrow"><span>${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]}</span>${numField(`data-wd="${d}"`, s.week[d] || 0, true)}</div>`).join('');
+  const wk = [1, 2, 3, 4, 5, 6, 0].map((d) => `<div class="wrow"><span>${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]}</span>${moneyField(`data-wd="${d}"`, s.week[d] || 0)}</div>`).join('');
   const nt = String(s.nh).padStart(2, '0') + ':' + String(s.nm).padStart(2, '0');
   const D = derive(ST, now());
   const canEditStart = !ST.events.length && !ST.snap.folded;
@@ -347,7 +354,7 @@ function openSettings() {
       <div class="row"><label>Currency</label><select id="sCur" class="grow">${curOpts}</select></div>
       <div class="row"><label>Money spent per day before quitting</label></div>
       <div class="seg" id="segMode"><button data-v="avg">Average per day</button><button data-v="week">Each day of the week</button></div>
-      <div id="mAvg" class="row">${numField('id="sDaily" class="grow"', s.daily || 0, true)}</div>
+      <div id="mAvg" class="row">${moneyField('id="sDaily"', s.daily || 0)}</div>
       <div id="mWeek" class="week" style="margin-top:10px">${wk}</div>
       <div class="hint">Money saved grows every second with your sober time; erased days take their money with them.</div></div>
 
@@ -397,7 +404,8 @@ function openSettings() {
     const modeUi = () => { sh.querySelector('#mAvg').classList.toggle('hidden', s.mode !== 'avg'); sh.querySelector('#mWeek').classList.toggle('hidden', s.mode !== 'week'); };
     seg('#segMode', s.mode, (v) => { s.mode = v; modeUi(); }); modeUi();
     const money = (v) => clamp(Math.round(parseIn(v) * 100) / 100, 0, 1000000);
-    sh.querySelector('#sCur').onchange = (e) => (s.cur = e.target.value);
+    sh.querySelector('#sCur').onchange = (e) => { s.cur = e.target.value; paintCur(sh, s.cur); };
+    paintCur(sh, s.cur);
     const drUi = () => {
       sh.querySelector('#cust').classList.toggle('hidden', s.drink !== 'custom');
       const d = DRINKS.find((x) => x[0] === s.drink), di = drinkInfo(s);
@@ -467,7 +475,7 @@ function restoreFrom(text, ask) {
   let b;
   try { b = readBackup(text); } catch (e) { toast(e.message || 'That file could not be read.', 4000); return false; }
   if (ask && ST && !confirm(`Replace the journey on this device with the backup from ${b.saved ? new Date(b.saved).toLocaleString() : 'that file'}?`)) return false;
-  ST = b.st;
+  ST = b.st; ST.edit = now();
   if (b.key) { LOC.key = b.key; LOC.last = ''; LOC.pub = ''; }
   VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = '';
   applyTheme(ST.set.theme); persist(); render(); pushNotify(); schedulePublish(); updDot();
@@ -478,35 +486,50 @@ function restoreFrom(text, ask) {
 function renderSync(box) {
   if (!box) return;
   if (LOC.key) {
+    const devs = Object.entries(LOC.devs || {}).filter(([id]) => id !== LOC.dev).sort((a, b) => b[1].seen - a[1].seen);
+    const t = (T) => (T ? new Date(T).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—');
+    const list = `<div class="dev-row"><b>This device (${esc(devName())})</b><span>last input ${esc(t(ST.edit))}</span></div>` +
+      (devs.length ? devs.map(([, d]) => `<div class="dev-row"><b>${esc(d.name || 'Other device')}</b><span>last input ${esc(t(d.edit))} · seen ${esc(t(d.seen))}</span></div>`).join('')
+        : '<div class="hint">No other device found on this key yet. Open the app on the other device, check that it shows exactly the same key, and tap Sync devices there.</div>');
     box.innerHTML = `<div class="row"><span class="key grow">${esc(LOC.key)}</span></div>
-      <div class="hint">Enter this key on your other device (Settings → Sync → Join). Everything is encrypted end to end before it goes through the relay.</div>
+      <div class="hint">Enter this key on your other device (Settings → Sync → Join).</div>
+      <div class="devs">${list}</div>
       <div class="hint" id="syncSt">${esc(syncStatus())}</div>
-      <div class="row"><button class="btn small" id="syNow">Sync now</button><button class="btn small ghost" id="syOff">Turn off sync</button></div>`;
-    box.querySelector('#syNow').onclick = async () => { await syncOnce(true); renderSync(box); };
-    box.querySelector('#syOff').onclick = () => { if (!confirm('Stop syncing this device?')) return; LOC.key = ''; LOC.last = ''; persist(); updDot(); renderSync(box); };
+      <div class="row"><button class="btn small ghost" id="syNow">Sync devices</button>
+        <button class="btn small toggle ${LOC.auto ? 'on' : ''}" id="syAuto">auto-sync</button>
+        <button class="btn small ghost" id="syLeave" style="margin-left:auto">Remove key</button></div>
+      <div class="hint">The device with the latest input wins.</div>`;
+    box.querySelector('#syNow').onclick = async (e) => { e.target.disabled = true; await syncOnce(true); renderSync(box); };
+    box.querySelector('#syAuto').onclick = () => { LOC.auto = !LOC.auto; persist(); if (LOC.auto) syncOnce(); renderSync(box); updDot(); };
+    box.querySelector('#syLeave').onclick = () => { if (!confirm('Remove the sync key from this device? Your journey stays here.')) return; LOC.key = ''; LOC.last = ''; LOC.devs = {}; persist(); updDot(); renderSync(box); };
   } else {
     box.innerHTML = `<div class="hint">Keep Windows and Android in step. Create a key on one device and join with it on the other.</div>
       <div class="row"><button class="btn small" id="syNew">Create sync key</button></div>
-      <div class="row"><input id="syKey" class="grow" placeholder="XXXX-XXXX-XXXX-XXXX"><button class="btn small ghost" id="syJoin">Join</button></div>`;
-    box.querySelector('#syNew').onclick = async () => { LOC.key = newSyncKey(); LOC.joining = false; LOC.last = ''; LOC.pub = ''; persist(); await syncOnce(true); renderSync(box); };
+      <div class="row"><input id="syKey" class="grow" placeholder="XXXX-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" spellcheck="false"><button class="btn small ghost" id="syJoin">Join</button></div>`;
+    box.querySelector('#syNew').onclick = async () => { LOC.key = newSyncKey(); LOC.joining = false; LOC.last = ''; LOC.pub = ''; LOC.devs = {}; LOC.auto = true; persist(); await syncOnce(true); renderSync(box); };
     box.querySelector('#syJoin').onclick = async () => {
       const k = normKey(box.querySelector('#syKey').value);
       if (k.length !== 16) { toast('A sync key has 16 letters and numbers.'); return; }
-      LOC.key = k.match(/.{4}/g).join('-'); LOC.joining = true; LOC.last = ''; LOC.pub = ''; persist();
+      LOC.key = k.match(/.{4}/g).join('-'); LOC.joining = true; LOC.last = ''; LOC.pub = ''; LOC.devs = {}; LOC.auto = true; persist();
       await syncOnce(true); renderSync(box);
     };
   }
 }
 
-// ---------- sync loop ----------
+// ---------- sync: the device with the newest input wins ----------
 let SY = { keys: null, keyFor: '', busy: false, err: '', at: 0, pubTimer: null };
-function syncStatus() { return SY.err ? 'Last sync failed: ' + SY.err : SY.at ? 'Last synced ' + new Date(SY.at).toLocaleTimeString() : 'Not synced yet'; }
-function updDot() { const d = $('syncDot'); d.className = 'sync-dot' + (LOC.key ? (SY.err ? ' err' : ' on') : ''); d.title = LOC.key ? syncStatus() : 'Sync off'; }
+const devName = () => (Native.platform === 'win' ? 'Windows' : Native.platform === 'android' ? 'Android' : 'Browser');
+function syncStatus() { return 'Auto-sync: ' + (LOC.auto ? 'on' : 'off') + (SY.err ? ' · last sync failed' : SY.at ? ' · last checked ' + new Date(SY.at).toLocaleTimeString() : ''); }
+function updDot() {
+  const d = $('syncDot');
+  d.className = 'sync-dot' + (LOC.key && LOC.auto ? (SY.err ? ' err' : ' on') : '');
+  d.title = LOC.key ? syncStatus() : 'Sync off';
+}
 async function keys() { if (SY.keyFor !== LOC.key) { SY.keys = await syncKeys(LOC.key); SY.keyFor = LOC.key; } return SY.keys; }
-function payload() { return { v: 1, dev: LOC.dev, st: ST }; }
-function schedulePublish() { if (!LOC.key) return; clearTimeout(SY.pubTimer); SY.pubTimer = setTimeout(() => publish(), 1500); }
+function payload() { return { v: 2, dev: LOC.dev, name: devName(), edit: ST.edit || 0, st: ST }; }
+function schedulePublish() { if (!LOC.key || !LOC.auto) return; clearTimeout(SY.pubTimer); SY.pubTimer = setTimeout(() => publish(), 1500); }
 async function publish(force) {
-  if (!LOC.key || !ST) return;
+  if (!LOC.key || !ST || !ST.snap.gen) return;
   const body = JSON.stringify(ST);
   if (!force && body === LOC.pub && now() - LOC.pubAt < 6 * HOUR) return;
   try {
@@ -514,47 +537,65 @@ async function publish(force) {
     let msg = await seal(k.aes, payload());
     if (msg.length > 3900) { ST.dead = ST.dead.slice(-8); ST.snap.fids = ST.snap.fids.slice(-8); msg = await seal(k.aes, payload()); }
     const r = await Native.http('POST', RELAY + k.topic, msg);
-    if (r.status < 200 || r.status >= 300) throw new Error('relay ' + r.status);
+    if (r.status < 200 || r.status >= 300) throw new Error(r.status ? 'error ' + r.status : 'no connection');
     LOC.pub = body; LOC.pubAt = now(); persist(); SY.err = ''; SY.at = now();
-  } catch (e) { SY.err = String(e.message || e); }
+  } catch (e) { SY.err = /no connection|^error \d+$/.test(String(e.message)) ? e.message : 'error'; }
   updDot();
 }
+// manual = "Sync devices": read everything the relay still holds, take the newest input, then send ours
 async function syncOnce(manual) {
   if (!LOC.key || SY.busy || !ST) { updDot(); return; }
+  if (!manual && !LOC.auto) { updDot(); return; }
   SY.busy = true;
+  let took = null;
   try {
     const k = await keys();
-    const r = await Native.http('GET', RELAY + k.topic + '/json?poll=1&since=' + (LOC.last || 'all'));
-    if (r.status !== 200) throw new Error('relay ' + r.status);
+    const r = await Native.http('GET', RELAY + k.topic + '/json?poll=1&since=' + (manual ? 'all' : LOC.last || 'all'));
+    if (r.status !== 200) throw new Error(r.status ? 'error ' + r.status : 'no connection');
     let newest = null;
+    LOC.devs = LOC.devs || {};
     for (const line of r.body.split('\n')) {
       if (!line.trim()) continue;
       let m; try { m = JSON.parse(line); } catch (e) { continue; }
       if (m.event !== 'message' || !m.message) continue;
       LOC.last = m.id;
-      try { const p = await unseal(k.aes, m.message); if (p && p.st && p.dev !== LOC.dev) newest = p; } catch (e) {}
+      let p; try { p = await unseal(k.aes, m.message); } catch (e) { continue; }
+      if (!p || !p.st || !p.st.snap || p.dev === LOC.dev) continue;
+      const edit = p.edit || (p.st && p.st.edit) || (p.st.set && p.st.set.ts) || 0;
+      const d = LOC.devs[p.dev] || {};
+      LOC.devs[p.dev] = { name: p.name || d.name || 'Other device', seen: Math.max(d.seen || 0, m.time * 1000), edit: Math.max(d.edit || 0, edit) };
+      if (!newest || edit >= newest.edit) newest = { edit, st: p.st, name: p.name || 'other device' };
     }
-    if (newest) await takeRemote(newest.st);
+    if (newest) took = await takeRemote(newest);
     SY.err = ''; SY.at = now(); persist();
-    await publish(manual);
-  } catch (e) { SY.err = String(e.message || e); }
+    if (!took) await publish(manual);
+  } catch (e) { SY.err = /no connection|^error \d+$/.test(String(e.message)) ? e.message : 'error'; }
   SY.busy = false;
   updDot();
-  if (manual) toast(SY.err ? 'Sync failed: ' + SY.err : 'Synced.');
+  if (manual) {
+    const others = Object.keys(LOC.devs || {}).filter((d) => d !== LOC.dev).length;
+    toast(SY.err ? 'Sync failed (' + SY.err + '). Check the internet connection.' : took ? 'Updated with the newer data from ' + took + '.' : others ? 'This device has the newest data. Sent it to your other devices.' : 'Sent. No other device has used this key yet.', 3500);
+  }
 }
-async function takeRemote(rs) {
-  if (!rs || !rs.snap) return;
+// returns the source device name when the remote data replaced ours
+async function takeRemote(nw) {
+  const rs = nw.st;
   rs.set = Object.assign(defaultSettings(), rs.set || {});
   rs.events = rs.events || []; rs.dead = rs.dead || [];
-  if (rs.snap.gen !== ST.snap.gen) {
-    if (LOC.joining) { await chooseJourney(rs); return; }
-    if (rs.snap.gen > ST.snap.gen) { ST = normalize(rs); persist(); render(); pushNotify(); }
-    return;
+  rs.edit = nw.edit;
+  if (LOC.joining && ST.snap.gen && rs.snap.gen !== ST.snap.gen && (ST.events.length || ST.snap.folded || now() - ST.snap.start > DAY)) {
+    // joining with a journey of our own: ask which one both devices keep
+    const keepRemote = await chooseJourney(rs);
+    LOC.joining = false;
+    if (!keepRemote) { ST.edit = now(); persist(); await publish(true); return null; }
+    ST = normalize(rs); persist(); applyTheme(ST.set.theme); render(); pushNotify();
+    return nw.name;
   }
   LOC.joining = false;
-  const before = JSON.stringify(ST);
-  ST = mergeStates(ST, rs);
-  if (JSON.stringify(ST) !== before) { persist(); render(); pushNotify(); }
+  if ((rs.edit || 0) <= (ST.edit || 0) && ST.snap.gen) return null;   // ours is newer (or the same)
+  ST = normalize(rs);
+  persist(); applyTheme(ST.set.theme); render(); pushNotify();
+  return nw.name;
 }
 function chooseJourney(rs) {
   return new Promise((done) => {
@@ -563,8 +604,8 @@ function chooseJourney(rs) {
       <div class="sec"><div class="hint">This device and the other device each have their own journey. Which one should both devices keep?</div>
       <div class="row"><button class="btn wide" id="chR">Other device: ${esc(fmtDur(dr.total))} sober</button></div>
       <div class="row"><button class="btn ghost wide" id="chL">This device: ${esc(fmtDur(dl.total))} sober</button></div></div>`, (sh) => {
-      sh.querySelector('#chR').onclick = () => { ST = normalize(rs); LOC.joining = false; persist(); closeModal(); pushNotify(); done(); };
-      sh.querySelector('#chL').onclick = () => { ST.snap.gen = now(); LOC.joining = false; persist(); closeModal(); publish(true); done(); };
+      sh.querySelector('#chR').onclick = () => { closeModal(); done(true); };
+      sh.querySelector('#chL').onclick = () => { closeModal(); done(false); };
     });
   });
 }
@@ -591,7 +632,7 @@ function openSetup() {
     <div class="sec"><h3>When was your last drink?</h3>
       <input type="datetime-local" id="wT" value="${toLocalInput(now())}" max="${toLocalInput(now())}" style="width:100%">
       <div class="row"><label>Currency</label><select id="wCur" class="grow">${curOpts}</select></div>
-      <div class="row"><label>Money spent on drinking per day</label>${numField('id="wMoney" class="grow"', 0, true)}</div>
+      <div class="row"><label>Money spent on drinking per day</label>${moneyField('id="wMoney"', 0)}</div>
       <div class="row"><button class="btn wide" id="wGo">Start my journey</button></div></div>
     <div class="sec"><h3>Already using it on another device?</h3>
       <div class="row"><input id="wKey" class="grow" placeholder="Sync key XXXX-XXXX-XXXX-XXXX"><button class="btn ghost small" id="wJoin">Join</button></div></div>
@@ -599,6 +640,8 @@ function openSetup() {
       <div class="hint">${Native.platform === 'android' ? 'Your automatic backup is in Download/Random Sober Life.' : 'Pick a Random Sober Life backup (.json).'}</div>
       <div class="row"><button class="btn ghost small" id="wRestore">Restore from backup…</button></div></div>`, (sh) => {
     wireNums(sh);
+    paintCur(sh, set.cur);
+    sh.querySelector('#wCur').onchange = (e) => paintCur(sh, e.target.value);
     sh.querySelector('#wRestore').onclick = async () => { const text = await Native.backupOpen(); if (text) restoreFrom(text, false); };
     sh.querySelector('#wGo').onclick = () => {
       let t = fromLocalInput(sh.querySelector('#wT').value); if (!isFinite(t) || t > now()) t = now();
@@ -608,7 +651,7 @@ function openSetup() {
     sh.querySelector('#wJoin').onclick = async () => {
       const k = normKey(sh.querySelector('#wKey').value);
       if (k.length !== 16) { toast('A sync key has 16 letters and numbers.'); return; }
-      LOC.key = k.match(/.{4}/g).join('-'); LOC.last = ''; LOC.pub = '';
+      LOC.key = k.match(/.{4}/g).join('-'); LOC.last = ''; LOC.pub = ''; LOC.auto = true; LOC.devs = {};
       const tmp = newState(now(), set); tmp.snap.gen = 0; ST = tmp;   // placeholder that any remote journey replaces
       LOC.joining = false;
       await syncOnce();
@@ -626,7 +669,7 @@ function openSetup() {
     try {
       const j = JSON.parse(raw);
       if (j.loc) LOC = Object.assign(LOC, j.loc);
-      if (j.st && j.st.snap) { ST = j.st; ST.set = Object.assign(defaultSettings(), ST.set || {}); ST.events = ST.events || []; ST.dead = ST.dead || []; normalize(ST); }
+      if (j.st && j.st.snap) { ST = j.st; if (!ST.edit) ST.edit = (ST.set && ST.set.ts) || ST.snap.gen; ST.set = Object.assign(defaultSettings(), ST.set || {}); ST.events = ST.events || []; ST.dead = ST.dead || []; normalize(ST); }
     } catch (e) {}
   }
   if (!ST) {

@@ -270,7 +270,7 @@ ${rays}<path d="${star}Z" fill="${c[4]}"/></svg>`;
 const RELAY = 'https://ntfy.sh/';
 const normKey = (k) => (k || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 function newSyncKey() {
-  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const b = new Uint8Array(16); crypto.getRandomValues(b);
+  const a = 'ACDEFGHJKLMNPQRTUVWXY34679'; /* no lookalikes (0 O 1 I 5 S 2 Z 8 B) */ const b = new Uint8Array(16); crypto.getRandomValues(b);
   let s = ''; b.forEach((v, i) => { s += a[v % a.length]; if (i % 4 === 3 && i < 15) s += '-'; }); return s;
 }
 async function sha256(str) { return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))); }
