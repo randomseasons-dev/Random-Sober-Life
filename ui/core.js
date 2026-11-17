@@ -307,9 +307,18 @@ function mergeStates(a, b) {
 }
 
 // ---------- colour packs ----------
+// [id, name, background (system bars), light?, preview swatch: card, accent, money, stat, alert] — values mirror style.css
 const THEMES = [
-  ['forest', 'Forest', '#0d1512', false], ['ocean', 'Ocean', '#0b1320', false], ['sunset', 'Sunset', '#1a0f1a', false],
-  ['midnight', 'Midnight', '#0a0a12', false], ['daylight', 'Daylight', '#f3f7f4', true],
+  ['forest', 'Forest', '#161c18', false, ['#212b25', '#8fbf8a', '#d9b26a', '#7fb0b0', '#c8645a']],
+  ['ocean', 'Ocean', '#141b20', false, ['#1f2a32', '#7fb8c4', '#e6c07b', '#9ab89a', '#c96a64']],
+  ['sunset', 'Sunset', '#1d1619', false, ['#2b2025', '#e39a6f', '#eab676', '#d58f9f', '#c9566a']],
+  ['midnight', 'Midnight', '#15151f', false, ['#202031', '#a99bd6', '#e2c37f', '#8fb4d1', '#c96680']],
+  ['cocoa', 'Cocoa', '#1c1714', false, ['#2a231e', '#d4a373', '#e2b86f', '#b5c08a', '#c25e50']],
+  ['ember', 'Ember', '#181716', false, ['#252321', '#e08a5a', '#e6b04f', '#c9c08f', '#cf5a4c']],
+  ['daylight', 'Daylight', '#eef0e8', true, ['#f9f8f2', '#4f7a52', '#a3732b', '#3f7c80', '#c0564b']],
+  ['lavender', 'Lavender', '#efedf3', true, ['#faf8fb', '#7a64a8', '#a0703c', '#4f8090', '#c25a72']],
+  ['clay', 'Clay', '#f2ebe1', true, ['#fbf7f1', '#b5653f', '#94701f', '#5a7f6c', '#b34a3f']],
+  ['oat', 'Oat', '#f3efe6', true, ['#fcfaf4', '#8a6a4a', '#8f7a2e', '#6a8a72', '#b85a4e']],
 ];
 
 // ---------- backup file (format 1; every later version must keep reading it) ----------

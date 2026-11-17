@@ -324,7 +324,6 @@ function wireNums(root) {
 }
 
 // ---------- colour packs ----------
-const THEME_ACCENT = { forest: '#3ccf8e', ocean: '#38bdf8', sunset: '#ff9f43', midnight: '#a78bfa', daylight: '#1f9d63' };
 function applyTheme(name) {
   const t = THEMES.find((x) => x[0] === name) || THEMES[0];
   if (t[0] === 'forest') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t[0];
@@ -342,7 +341,7 @@ function openSettings() {
   const nt = String(s.nh).padStart(2, '0') + ':' + String(s.nm).padStart(2, '0');
   const D = derive(ST, now());
   const canEditStart = !ST.events.length && !ST.snap.folded;
-  const themeBtns = THEMES.map((t) => `<button data-th="${t[0]}"><i style="background:linear-gradient(135deg,${t[2]} 45%,${THEME_ACCENT[t[0]]} 46%)"></i>${t[1]}</button>`).join('');
+  const themeBtns = THEMES.map((t) => `<button data-th="${t[0]}"><i style="background:${t[2]}">${t[4].map((c) => `<b style="background:${c}"></b>`).join('')}</i>${t[1]}</button>`).join('');
   const bkWhere = Native.platform === 'win' ? 'Documents\\Random Sober Life' : 'Download/Random Sober Life';
   openModal('settings', `${head('Settings')}
     <div class="sec"><h3>Top section</h3>

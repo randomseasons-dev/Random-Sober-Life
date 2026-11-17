@@ -16,7 +16,9 @@ Everything stays on your devices — no account, no tracking. The two apps can s
 ## Settings
 
 - Top section: quotes / r/stopdrinking / off.
-- Colours: 5 packs (Forest, Ocean, Sunset, Midnight, Daylight).
+- Colours: 10 matte, cozy packs — dark: Forest, Ocean, Sunset, Midnight, Cocoa, Ember; light: Daylight, Lavender, Clay, Oat.
+  Each pack gives its own colour to the sober-time digits, money, quote card, each of the six stat tiles, settings headings,
+  logo and buttons.
 - Currency (30 currencies, USD first) and money spent per day before quitting — one average amount, or one amount for each
   day of the week (up to 1,000,000 per day).
 - What counts as one drink: 7 common measures (beer 330 ml, large beer 500 ml, pint, wine, spirit shot, cocktail,
