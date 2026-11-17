@@ -16,7 +16,8 @@ Everything stays on your devices — no account, no tracking. The two apps can s
 ## Settings
 
 - Top section: quotes / r/stopdrinking / off.
-- Currency (30 currencies including VND) and money spent per day before quitting — one average amount, or one amount for each
+- Colours: 5 packs (Forest, Ocean, Sunset, Midnight, Daylight).
+- Currency (30 currencies, USD first) and money spent per day before quitting — one average amount, or one amount for each
   day of the week (up to 1,000,000 per day).
 - What counts as one drink: 7 common measures (beer 330 ml, large beer 500 ml, pint, wine, spirit shot, cocktail,
   standard drink) or your own (name, ml, alcohol %).
@@ -24,6 +25,7 @@ Everything stays on your devices — no account, no tracking. The two apps can s
   With **Drinks are accumulative** ticked the drinks add up across entries and the leftover carries over; unticking clears the count.
 - Daily summary notification (default on, 8:00).
 - Sync key (create on one device, join on the other).
+- Backup: automatic backup file after every change (Documents\Random Sober Life on Windows, Download/Random Sober Life on Android), plus Backup now / Restore from file. Settings apply with "SAVE and Close".
 
 ## Milestones
 

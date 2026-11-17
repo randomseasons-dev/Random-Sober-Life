@@ -9,6 +9,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 pub(crate) fn data_dir(app: &AppHandle) -> PathBuf {
@@ -78,6 +79,49 @@ fn set_notify(app: AppHandle, cfg: String) {
     notify::set_config(&app, &cfg);
 }
 
+/// Automatic backup: Documents\Random Sober Life\Random Sober Life backup.json (outside the app data, survives a reinstall)
+fn auto_backup_path(app: &AppHandle) -> Option<PathBuf> {
+    let d = app.path().document_dir().ok()?.join("Random Sober Life");
+    std::fs::create_dir_all(&d).ok()?;
+    Some(d.join("Random Sober Life backup.json"))
+}
+
+#[tauri::command]
+fn backup_auto(app: AppHandle, data: String) -> Result<(), String> {
+    let p = auto_backup_path(&app).ok_or("no Documents folder")?;
+    write_atomic(&p, &data)
+}
+
+#[tauri::command]
+fn backup_find(app: AppHandle) -> Option<String> {
+    std::fs::read_to_string(auto_backup_path(&app)?).ok()
+}
+
+#[tauri::command]
+async fn backup_save(app: AppHandle, data: String, name: String) -> String {
+    let mut dlg = app.dialog().file().set_file_name(&name).add_filter("Random Sober Life backup", &["json"]);
+    if let Some(d) = auto_backup_path(&app).and_then(|p| p.parent().map(|x| x.to_path_buf())) {
+        dlg = dlg.set_directory(d);
+    }
+    match dlg.blocking_save_file().and_then(|f| f.into_path().ok()) {
+        Some(p) => match write_atomic(&p, &data) {
+            Ok(()) => "ok".into(),
+            Err(e) => format!("Could not save: {e}"),
+        },
+        None => "cancel".into(),
+    }
+}
+
+#[tauri::command]
+async fn backup_open(app: AppHandle) -> Option<String> {
+    let mut dlg = app.dialog().file().add_filter("Random Sober Life backup", &["json"]);
+    if let Some(d) = auto_backup_path(&app).and_then(|p| p.parent().map(|x| x.to_path_buf())) {
+        dlg = dlg.set_directory(d);
+    }
+    let p = dlg.blocking_pick_file()?.into_path().ok()?;
+    std::fs::read_to_string(p).ok()
+}
+
 #[tauri::command]
 fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
@@ -99,6 +143,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let h = app.handle().clone();
             // start with Windows once by default (the daily summary needs the tray app); the user can turn it off
@@ -144,7 +189,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            load_state, save_state, http_req, open_url, set_notify, app_version, get_autostart, set_autostart
+            load_state, save_state, http_req, open_url, set_notify, app_version, get_autostart, set_autostart,
+            backup_auto, backup_find, backup_save, backup_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running Random Sober Life");

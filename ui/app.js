@@ -43,14 +43,42 @@ const Native = {
   },
   async getAutostart() { return TAURI ? TAURI.invoke('get_autostart').catch(() => false) : false; },
   setAutostart(on) { if (TAURI) return TAURI.invoke('set_autostart', { on }).catch(() => {}); },
+  // backups: automatic copy after every change + "Backup now" / "Restore from file"
+  backupAuto(text) {
+    if (TAURI) return TAURI.invoke('backup_auto', { data: text }).catch(() => {});
+    if (AND) return AND.backupAuto(text);
+  },
+  backupSave(text, name) {
+    if (TAURI) return TAURI.invoke('backup_save', { data: text, name }).then((r) => (r === 'ok' ? true : r === 'cancel' ? null : r)).catch((e) => String(e));
+    if (AND) return fileCall((id) => AND.backupSave(id, name, text)).then((r) => (r.ok ? true : r.text || null));
+    return Promise.resolve('Not available here.');
+  },
+  backupOpen() {
+    if (TAURI) return TAURI.invoke('backup_open').catch(() => null);
+    if (AND) return fileCall((id) => AND.backupOpen(id)).then((r) => (r.ok ? r.text : null));
+    return Promise.resolve(null);
+  },
+  async findBackup() { return TAURI ? TAURI.invoke('backup_find').catch(() => null) : null; },
+  notifyAllowed() { return AND && AND.notifyAllowed ? AND.notifyAllowed() : true; },
+  askNotify() { if (AND) AND.askNotify(); },
+  openNotifySettings() { if (AND) AND.openNotifySettings(); },
+  setBars(bg, light) { if (AND && AND.setBars) AND.setBars(bg, !!light); },
 };
+const fileWait = {};
+window.__rslFile = (id, ok, text) => { const f = fileWait[id]; delete fileWait[id]; if (f) f({ ok, text }); };
+function fileCall(start) { return new Promise((res) => { const id = rid(); fileWait[id] = res; start(id); }); }
 
 // ---------- app state ----------
 let ST = null;            // synced: { snap, events, dead, set }
 let LOC = { dev: rid(), key: '', last: '', joining: false, pub: '', pubAt: 0 };   // this device only
 let VIEW = { qOff: 0, qDay: 0, rd: [], rdI: 0, rdAfter: null, rdState: 'idle', modal: null, version: '' };
 
-function persist() { Native.save(JSON.stringify({ st: ST, loc: LOC })); }
+function persist() {
+  Native.save(JSON.stringify({ st: ST, loc: LOC }));
+  // automatic backup file (outside the app's own data, so it survives a reinstall)
+  clearTimeout(persist.bk);
+  if (ST && ST.snap.gen) persist.bk = setTimeout(() => Native.backupAuto(makeBackup(ST, LOC.key, VIEW.version)), 2500);
+}
 function changed(settings) {
   if (settings) ST.set.ts = now();
   normalize(ST);
@@ -192,7 +220,7 @@ function openModal(name, html, wire) {
   $('sheet').querySelectorAll('[data-close]').forEach((b) => (b.onclick = closeModal));
   if (wire) wire($('sheet'));
 }
-function closeModal() { VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = ''; render(); }
+function closeModal() { VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = ''; if (ST) applyTheme(ST.set.theme); render(); }
 $('modal').onclick = (e) => { if (e.target === $('modal') && VIEW.modal !== 'setup' && VIEW.modal !== 'choose') closeModal(); };
 window.__rslBack = () => { if (VIEW.modal && VIEW.modal !== 'setup' && VIEW.modal !== 'choose') { closeModal(); return true; } return false; };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__rslBack(); });
@@ -260,33 +288,74 @@ function openMedals() {
 }
 $('btnMedal').onclick = openMedals;
 
-// ---------- settings ----------
+// ---------- number inputs with "," thousands separators ----------
+function fmtIn(v) {
+  if (v === '' || v === null || v === undefined || !isFinite(+v)) return '';
+  const [i, f] = String(+v).split('.');
+  return i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
+}
+const parseIn = (s) => +String(s || '').replace(/,/g, '') || 0;
+const numField = (attrs, v, dec) => `<input type="text" inputmode="${dec ? 'decimal' : 'numeric'}" data-num="${dec ? 1 : 0}" ${attrs} value="${fmtIn(v)}">`;
+function wireNums(root) {
+  root.querySelectorAll('input[data-num]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const dec = inp.dataset.num === '1';
+      const re = dec ? /[^\d.]/g : /[^\d]/g;
+      const caret = inp.selectionStart || 0;
+      const keep = inp.value.slice(0, caret).replace(re, '').length;   // characters before the caret
+      let raw = inp.value.replace(re, '');
+      if (dec) { const k = raw.indexOf('.'); if (k >= 0) raw = raw.slice(0, k + 1) + raw.slice(k + 1).replace(/\./g, '').slice(0, 2); }
+      let [i, f] = raw.split('.');
+      i = (i || '').replace(/^0+(?=\d)/, '');
+      const out = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (f !== undefined ? '.' + f : '');
+      inp.value = out;
+      let pos = 0, n = 0;
+      while (pos < out.length && n < keep) { if (out[pos] !== ',') n++; pos++; }
+      try { inp.setSelectionRange(pos, pos); } catch (e) {}
+    });
+  });
+}
+
+// ---------- colour packs ----------
+const THEME_ACCENT = { forest: '#3ccf8e', ocean: '#38bdf8', sunset: '#ff9f43', midnight: '#a78bfa', daylight: '#1f9d63' };
+function applyTheme(name) {
+  const t = THEMES.find((x) => x[0] === name) || THEMES[0];
+  if (t[0] === 'forest') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t[0];
+  Native.setBars(t[2], t[3]);
+}
+
+// ---------- settings (edited as a draft; "SAVE and Close" applies it, × / Back discards) ----------
 function openSettings() {
-  const s = ST.set;
+  const s = clone(ST.set);
+  let autoWanted = null;
   const curOpts = CURRENCIES.map((c) => `<option value="${c[0]}" ${c[0] === s.cur ? 'selected' : ''}>${c[0]} — ${c[1]}</option>`).join('');
   const drOpts = DRINKS.map((d) => `<option value="${d[0]}" ${d[0] === s.drink ? 'selected' : ''}>${d[1]}</option>`).join('')
     + `<option value="custom" ${s.drink === 'custom' ? 'selected' : ''}>My own drink…</option>`;
-  const wk = [1, 2, 3, 4, 5, 6, 0].map((d) => `<div>${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]}<input type="number" min="0" max="1000000" data-wd="${d}" value="${s.week[d] || 0}"></div>`).join('');
+  const wk = [1, 2, 3, 4, 5, 6, 0].map((d) => `<div class="wrow"><span>${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d]}</span>${numField(`data-wd="${d}"`, s.week[d] || 0, true)}</div>`).join('');
   const nt = String(s.nh).padStart(2, '0') + ':' + String(s.nm).padStart(2, '0');
   const D = derive(ST, now());
   const canEditStart = !ST.events.length && !ST.snap.folded;
+  const themeBtns = THEMES.map((t) => `<button data-th="${t[0]}"><i style="background:linear-gradient(135deg,${t[2]} 45%,${THEME_ACCENT[t[0]]} 46%)"></i>${t[1]}</button>`).join('');
+  const bkWhere = Native.platform === 'win' ? 'Documents\\Random Sober Life' : 'Download/Random Sober Life';
   openModal('settings', `${head('Settings')}
     <div class="sec"><h3>Top section</h3>
       <div class="seg" id="segTop"><button data-v="quotes">Quotes</button><button data-v="reddit">r/stopdrinking</button><button data-v="off">Off</button></div></div>
+
+    <div class="sec"><h3>Colours</h3><div class="themes" id="themes">${themeBtns}</div></div>
 
     <div class="sec"><h3>Money</h3>
       <div class="row"><label>Currency</label><select id="sCur" class="grow">${curOpts}</select></div>
       <div class="row"><label>Money spent per day before quitting</label></div>
       <div class="seg" id="segMode"><button data-v="avg">Average per day</button><button data-v="week">Each day of the week</button></div>
-      <div id="mAvg" class="row"><input type="number" id="sDaily" min="0" max="1000000" class="grow" value="${s.daily || 0}"></div>
+      <div id="mAvg" class="row">${numField('id="sDaily" class="grow"', s.daily || 0, true)}</div>
       <div id="mWeek" class="week" style="margin-top:10px">${wk}</div>
-      <div class="hint">Up to 1,000,000 per day. Money saved grows every second with your sober time; erased days take their money with them.</div></div>
+      <div class="hint">Money saved grows every second with your sober time; erased days take their money with them.</div></div>
 
     <div class="sec"><h3>What is one drink</h3>
       <select id="sDrink" style="width:100%">${drOpts}</select>
       <div id="cust" class="row"><input id="cName" class="grow" placeholder="Name" value="${esc(s.custom.name)}">
-        <input id="cMl" type="number" min="1" max="5000" style="width:90px" value="${s.custom.ml}"><label>ml</label>
-        <input id="cAbv" type="number" min="0.1" max="96" step="0.1" style="width:80px" value="${s.custom.abv}"><label>%</label></div>
+        ${numField('id="cMl" style="width:90px"', s.custom.ml)}<label>ml</label>
+        <input id="cAbv" type="text" inputmode="decimal" style="width:80px" value="${s.custom.abv}"><label>%</label></div>
       <div class="hint" id="drDesc"></div></div>
 
     <div class="sec"><h3>Drink rule</h3>
@@ -298,7 +367,13 @@ function openSettings() {
       <div class="row"><label class="chk grow"><input type="checkbox" id="sNot" ${s.notify ? 'checked' : ''}> Notification every day at</label>
         <input type="time" id="sNt" value="${nt}"></div>
       ${Native.platform === 'win' ? `<div class="row"><label class="chk"><input type="checkbox" id="sAuto"> Start with Windows (needed for the daily summary)</label></div>` : ''}
+      ${Native.platform === 'android' ? `<div class="row"><button class="btn ghost small" id="sNotSet">Open notification settings</button></div>` : ''}
     </div>
+
+    <div class="sec"><h3>Backup</h3>
+      <div class="hint">Your journey is also backed up automatically after every change to <b>${esc(bkWhere)}</b>.
+        A backup holds the whole journey, every setting and the sync key.</div>
+      <div class="row"><button class="btn small" id="bkSave">Backup now…</button><button class="btn small ghost" id="bkLoad">Restore from file…</button></div></div>
 
     <div class="sec"><h3>Sync</h3><div id="syncBox"></div></div>
 
@@ -306,48 +381,58 @@ function openSettings() {
       <div class="row"><label>Started</label><input type="datetime-local" id="sStart" value="${toLocalInput(ST.snap.start)}" ${canEditStart ? '' : 'disabled'} class="grow"></div>
       <div class="hint">${canEditStart ? 'You can change the start until you log your first drink.' : 'Journey start: ' + esc(fmtWhen(D.s.start))}</div>
       <div class="row"><button class="btn ghost small" id="sWipe">Start over (erase everything)</button></div></div>
-    <div class="hint" style="text-align:center">Random Sober Life ${esc(VIEW.version)} · ${QUOTES.length} quotes</div>`, (sh) => {
+    <div class="hint" style="text-align:center">Random Sober Life ${esc(VIEW.version)} · ${QUOTES.length} quotes</div>
+    <div class="done-bar"><button class="btn wide" id="sDone">SAVE and Close</button></div>`, (sh) => {
+    wireNums(sh);
     const seg = (id, val, cb) => {
       const el = sh.querySelector(id);
       const paint = (v) => el.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
       paint(val);
       el.querySelectorAll('button').forEach((b) => (b.onclick = () => { paint(b.dataset.v); cb(b.dataset.v); }));
     };
-    seg('#segTop', s.top, (v) => { s.top = v; if (v === 'reddit' && VIEW.rdState === 'error') VIEW.rdState = 'idle'; changed(true); });
+    seg('#segTop', s.top, (v) => (s.top = v));
+    const paintTh = () => sh.querySelectorAll('[data-th]').forEach((b) => b.classList.toggle('on', b.dataset.th === s.theme));
+    sh.querySelectorAll('[data-th]').forEach((b) => (b.onclick = () => { s.theme = b.dataset.th; paintTh(); applyTheme(s.theme); }));
+    paintTh();
     const modeUi = () => { sh.querySelector('#mAvg').classList.toggle('hidden', s.mode !== 'avg'); sh.querySelector('#mWeek').classList.toggle('hidden', s.mode !== 'week'); };
-    seg('#segMode', s.mode, (v) => { s.mode = v; modeUi(); changed(true); }); modeUi();
-    const money = (v) => clamp(Math.round((+v || 0) * 100) / 100, 0, 1000000);
-    sh.querySelector('#sCur').onchange = (e) => { s.cur = e.target.value; changed(true); };
-    sh.querySelector('#sDaily').onchange = (e) => { s.daily = money(e.target.value); e.target.value = s.daily; changed(true); };
-    sh.querySelectorAll('[data-wd]').forEach((inp) => (inp.onchange = () => { s.week[+inp.dataset.wd] = money(inp.value); inp.value = s.week[+inp.dataset.wd]; changed(true); }));
+    seg('#segMode', s.mode, (v) => { s.mode = v; modeUi(); }); modeUi();
+    const money = (v) => clamp(Math.round(parseIn(v) * 100) / 100, 0, 1000000);
+    sh.querySelector('#sCur').onchange = (e) => (s.cur = e.target.value);
     const drUi = () => {
       sh.querySelector('#cust').classList.toggle('hidden', s.drink !== 'custom');
       const d = DRINKS.find((x) => x[0] === s.drink), di = drinkInfo(s);
       sh.querySelector('#drDesc').textContent = (d ? d[4] + ' ' : di.desc + '. ') + `About ${di.g.toFixed(1)} g of pure alcohol (${(di.g / 10).toFixed(1)} standard drinks).`;
     };
-    sh.querySelector('#sDrink').onchange = (e) => { s.drink = e.target.value; drUi(); changed(true); };
     const cust = () => {
-      s.custom = { name: sh.querySelector('#cName').value.slice(0, 40) || 'My drink', ml: clamp(+sh.querySelector('#cMl').value || 0, 1, 5000), abv: clamp(+sh.querySelector('#cAbv').value || 0, 0.1, 96) };
-      drUi(); changed(true);
+      s.custom = { name: sh.querySelector('#cName').value.slice(0, 40) || 'My drink', ml: clamp(parseIn(sh.querySelector('#cMl').value), 1, 5000), abv: clamp(+sh.querySelector('#cAbv').value || 0, 0.1, 96) };
+      drUi();
     };
+    sh.querySelector('#sDrink').onchange = (e) => { s.drink = e.target.value; drUi(); };
     ['#cName', '#cMl', '#cAbv'].forEach((q) => (sh.querySelector(q).onchange = cust));
     drUi();
     const ruleUi = () => {
-      const accEl = sh.querySelector('#sAcc'); accEl.disabled = !s.x;
+      sh.querySelector('#sAcc').disabled = !s.x;
       const D2 = derive(ST, now());
       sh.querySelector('#ruleHint').innerHTML = esc(ruleText(s)) + (s.x && s.acc ? ` Counted so far: ${D2.s.accEp === s.accEp ? D2.s.accum : 0}.` : '') +
         '<br>X = Any: any amount triggers it. Y = All: the whole journey resets. One streak: the current streak is taken off.' +
-        ' Unticking accumulative clears the counted drinks.';
+        ' Ticking accumulative: uncounted drinks will be saved for the next erasement.';
     };
-    sh.querySelector('#spX').appendChild(spinner([0, ...range(1, 30)], s.x, (v) => { s.x = v; ruleUi(); changed(true); }, (v) => (v ? v : 'Any')));
+    sh.querySelector('#spX').appendChild(spinner([0, ...range(1, 30)], s.x, (v) => { s.x = v; ruleUi(); }, (v) => (v ? v : 'Any')));
     const yv = ['all', 'streak', ...range(1, 30)];
-    sh.querySelector('#spY').appendChild(spinner(yv, Math.max(0, yv.indexOf(s.y)), (v) => { s.y = v; ruleUi(); changed(true); }, yLabel));
-    sh.querySelector('#sAcc').onchange = (e) => { s.acc = e.target.checked; if (!s.acc) s.accEp = (s.accEp || 0) + 1; ruleUi(); changed(true); };
+    sh.querySelector('#spY').appendChild(spinner(yv, Math.max(0, yv.indexOf(s.y)), (v) => { s.y = v; ruleUi(); }, yLabel));
+    // unticking clears the counted drinks (new epoch); ticking back inside the same draft keeps the saved epoch
+    sh.querySelector('#sAcc').onchange = (e) => { s.acc = e.target.checked; s.accEp = !s.acc && ST.set.acc ? (ST.set.accEp || 0) + 1 : ST.set.accEp || 0; ruleUi(); };
     ruleUi();
-    sh.querySelector('#sNot').onchange = (e) => { s.notify = e.target.checked; changed(true); if (s.notify && AND && AND.askNotify) AND.askNotify(); };
-    sh.querySelector('#sNt').onchange = (e) => { const [h, m] = (e.target.value || '08:00').split(':'); s.nh = clamp(+h || 0, 0, 23); s.nm = clamp(+m || 0, 0, 59); changed(true); };
+    sh.querySelector('#sNot').onchange = (e) => (s.notify = e.target.checked);
+    sh.querySelector('#sNt').onchange = (e) => { const [h, m] = (e.target.value || '08:00').split(':'); s.nh = clamp(+h || 0, 0, 23); s.nm = clamp(+m || 0, 0, 59); };
     const au = sh.querySelector('#sAuto');
-    if (au) { Native.getAutostart().then((v) => (au.checked = !!v)); au.onchange = () => Native.setAutostart(au.checked); }
+    if (au) { Native.getAutostart().then((v) => (au.checked = !!v)); au.onchange = () => (autoWanted = au.checked); }
+    const ns = sh.querySelector('#sNotSet'); if (ns) ns.onclick = () => Native.openNotifySettings();
+    sh.querySelector('#bkSave').onclick = async () => {
+      const r = await Native.backupSave(makeBackup(ST, LOC.key, VIEW.version), backupName());
+      if (r) toast(r === true ? 'Backup saved.' : String(r), 3500);
+    };
+    sh.querySelector('#bkLoad').onclick = async () => { const text = await Native.backupOpen(); if (text) restoreFrom(text, true); };
     const st = sh.querySelector('#sStart');
     st.onchange = () => {
       const t = fromLocalInput(st.value);
@@ -358,10 +443,37 @@ function openSettings() {
       if (!confirm('Erase the whole journey, all stats and medals, and start again now? This also replaces the journey on synced devices.')) return;
       ST = newState(now(), ST.set); changed(); closeModal(); toast('A fresh start. Day one begins now.');
     };
+    sh.querySelector('#sDone').onclick = () => {
+      s.daily = money(sh.querySelector('#sDaily').value);
+      sh.querySelectorAll('[data-wd]').forEach((inp) => (s.week[+inp.dataset.wd] = money(inp.value)));
+      cust();
+      if (s.top === 'reddit' && VIEW.rdState === 'error') VIEW.rdState = 'idle';
+      const askN = s.notify && !ST.set.notify;
+      ST.set = s;
+      if (autoWanted !== null) Native.setAutostart(autoWanted);
+      VIEW.savedSettings = true;
+      changed(true);
+      closeModal();
+      if (askN) Native.askNotify();
+      toast('Settings saved.');
+    };
     renderSync(sh.querySelector('#syncBox'));
   });
 }
 $('btnSettings').onclick = openSettings;
+
+function backupName() { const d = new Date(); return `Random Sober Life backup ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`; }
+function restoreFrom(text, ask) {
+  let b;
+  try { b = readBackup(text); } catch (e) { toast(e.message || 'That file could not be read.', 4000); return false; }
+  if (ask && ST && !confirm(`Replace the journey on this device with the backup from ${b.saved ? new Date(b.saved).toLocaleString() : 'that file'}?`)) return false;
+  ST = b.st;
+  if (b.key) { LOC.key = b.key; LOC.last = ''; LOC.pub = ''; }
+  VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = '';
+  applyTheme(ST.set.theme); persist(); render(); pushNotify(); schedulePublish(); updDot();
+  toast('Journey restored from backup.', 3000);
+  return true;
+}
 
 function renderSync(box) {
   if (!box) return;
@@ -468,6 +580,9 @@ function pushNotify() {
   });
 }
 
+function notifBar() { $('notifBar').classList.toggle('hidden', !(ST && ST.set.notify && !Native.notifyAllowed())); }
+window.__rslNotifChanged = () => notifBar();
+
 // ---------- first run ----------
 function openSetup() {
   const set = defaultSettings();
@@ -476,13 +591,18 @@ function openSetup() {
     <div class="sec"><h3>When was your last drink?</h3>
       <input type="datetime-local" id="wT" value="${toLocalInput(now())}" max="${toLocalInput(now())}" style="width:100%">
       <div class="row"><label>Currency</label><select id="wCur" class="grow">${curOpts}</select></div>
-      <div class="row"><label>Money spent on drinking per day</label><input type="number" id="wMoney" min="0" max="1000000" class="grow" value="0"></div>
+      <div class="row"><label>Money spent on drinking per day</label>${numField('id="wMoney" class="grow"', 0, true)}</div>
       <div class="row"><button class="btn wide" id="wGo">Start my journey</button></div></div>
     <div class="sec"><h3>Already using it on another device?</h3>
-      <div class="row"><input id="wKey" class="grow" placeholder="Sync key XXXX-XXXX-XXXX-XXXX"><button class="btn ghost small" id="wJoin">Join</button></div></div>`, (sh) => {
+      <div class="row"><input id="wKey" class="grow" placeholder="Sync key XXXX-XXXX-XXXX-XXXX"><button class="btn ghost small" id="wJoin">Join</button></div></div>
+    <div class="sec"><h3>Have a backup file?</h3>
+      <div class="hint">${Native.platform === 'android' ? 'Your automatic backup is in Download/Random Sober Life.' : 'Pick a Random Sober Life backup (.json).'}</div>
+      <div class="row"><button class="btn ghost small" id="wRestore">Restore from backup…</button></div></div>`, (sh) => {
+    wireNums(sh);
+    sh.querySelector('#wRestore').onclick = async () => { const text = await Native.backupOpen(); if (text) restoreFrom(text, false); };
     sh.querySelector('#wGo').onclick = () => {
       let t = fromLocalInput(sh.querySelector('#wT').value); if (!isFinite(t) || t > now()) t = now();
-      set.cur = sh.querySelector('#wCur').value; set.daily = clamp(+sh.querySelector('#wMoney').value || 0, 0, 1000000); set.ts = now();
+      set.cur = sh.querySelector('#wCur').value; set.daily = clamp(parseIn(sh.querySelector('#wMoney').value), 0, 1000000); set.ts = now();
       ST = newState(t, set); closeModal(); changed();
     };
     sh.querySelector('#wJoin').onclick = async () => {
@@ -509,11 +629,18 @@ function openSetup() {
       if (j.st && j.st.snap) { ST = j.st; ST.set = Object.assign(defaultSettings(), ST.set || {}); ST.events = ST.events || []; ST.dead = ST.dead || []; normalize(ST); }
     } catch (e) {}
   }
-  if (!ST) openSetup(); else { render(); pushNotify(); }
+  if (!ST) {
+    const bk = await Native.findBackup();          // Windows: a reinstall finds its automatic backup
+    if (bk) restoreFrom(bk, false);
+  }
+  if (!ST) openSetup(); else { applyTheme(ST.set.theme); render(); pushNotify(); }
   persist();
+  // ask for notification permission only once the screen is up (asking at launch left the Allow button dead)
+  setTimeout(() => { if (ST && ST.set.notify && !Native.notifyAllowed()) Native.askNotify(); notifBar(); }, 1500);
+  $('notifOn').onclick = () => Native.openNotifySettings();
   setInterval(() => { if (!document.hidden && VIEW.modal !== 'settings') render(); }, 1000);
   updDot();
   syncOnce();
   setInterval(() => syncOnce(), 60 * 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); syncOnce(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); notifBar(); syncOnce(); } });
 })();

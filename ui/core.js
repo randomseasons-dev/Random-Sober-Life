@@ -5,17 +5,38 @@ const MAX_EVENTS = 5;          // only the last 5 drink entries are kept; older 
 const MAX_FIDS = 20, MAX_DEAD = 30;
 
 // ---------- reference lists ----------
+// USD first, the rest in alphabetical order by name
 const CURRENCIES = [
-  ['VND', 'Vietnamese Dong', 'vi-VN'], ['USD', 'US Dollar', 'en-US'], ['EUR', 'Euro', 'de-DE'],
-  ['JPY', 'Japanese Yen', 'ja-JP'], ['GBP', 'British Pound', 'en-GB'], ['CNY', 'Chinese Yuan', 'zh-CN'],
-  ['AUD', 'Australian Dollar', 'en-AU'], ['CAD', 'Canadian Dollar', 'en-CA'], ['CHF', 'Swiss Franc', 'de-CH'],
-  ['HKD', 'Hong Kong Dollar', 'zh-HK'], ['SGD', 'Singapore Dollar', 'en-SG'], ['SEK', 'Swedish Krona', 'sv-SE'],
-  ['KRW', 'South Korean Won', 'ko-KR'], ['NOK', 'Norwegian Krone', 'nb-NO'], ['NZD', 'New Zealand Dollar', 'en-NZ'],
-  ['INR', 'Indian Rupee', 'en-IN'], ['MXN', 'Mexican Peso', 'es-MX'], ['TWD', 'New Taiwan Dollar', 'zh-TW'],
-  ['ZAR', 'South African Rand', 'en-ZA'], ['BRL', 'Brazilian Real', 'pt-BR'], ['DKK', 'Danish Krone', 'da-DK'],
-  ['PLN', 'Polish Zloty', 'pl-PL'], ['THB', 'Thai Baht', 'th-TH'], ['IDR', 'Indonesian Rupiah', 'id-ID'],
-  ['PHP', 'Philippine Peso', 'en-PH'], ['MYR', 'Malaysian Ringgit', 'ms-MY'], ['TRY', 'Turkish Lira', 'tr-TR'],
-  ['RUB', 'Russian Ruble', 'ru-RU'], ['AED', 'UAE Dirham', 'en-AE'], ['SAR', 'Saudi Riyal', 'en-SA'],
+  ['USD', 'US Dollar', 'en-US'],
+  ['AUD', 'Australian Dollar', 'en-AU'],
+  ['BRL', 'Brazilian Real', 'pt-BR'],
+  ['GBP', 'British Pound', 'en-GB'],
+  ['CAD', 'Canadian Dollar', 'en-CA'],
+  ['CNY', 'Chinese Yuan', 'zh-CN'],
+  ['DKK', 'Danish Krone', 'da-DK'],
+  ['EUR', 'Euro', 'de-DE'],
+  ['HKD', 'Hong Kong Dollar', 'zh-HK'],
+  ['INR', 'Indian Rupee', 'en-IN'],
+  ['IDR', 'Indonesian Rupiah', 'id-ID'],
+  ['JPY', 'Japanese Yen', 'ja-JP'],
+  ['MYR', 'Malaysian Ringgit', 'ms-MY'],
+  ['MXN', 'Mexican Peso', 'es-MX'],
+  ['TWD', 'New Taiwan Dollar', 'zh-TW'],
+  ['NZD', 'New Zealand Dollar', 'en-NZ'],
+  ['NOK', 'Norwegian Krone', 'nb-NO'],
+  ['PHP', 'Philippine Peso', 'en-PH'],
+  ['PLN', 'Polish Zloty', 'pl-PL'],
+  ['RUB', 'Russian Ruble', 'ru-RU'],
+  ['SAR', 'Saudi Riyal', 'en-SA'],
+  ['SGD', 'Singapore Dollar', 'en-SG'],
+  ['ZAR', 'South African Rand', 'en-ZA'],
+  ['KRW', 'South Korean Won', 'ko-KR'],
+  ['SEK', 'Swedish Krona', 'sv-SE'],
+  ['CHF', 'Swiss Franc', 'de-CH'],
+  ['THB', 'Thai Baht', 'th-TH'],
+  ['TRY', 'Turkish Lira', 'tr-TR'],
+  ['AED', 'UAE Dirham', 'en-AE'],
+  ['VND', 'Vietnamese Dong', 'vi-VN'],
 ];
 const DRINKS = [
   ['beer330', 'A beer (330 ml)', 330, 5, 'A regular can or small bottle of beer at about 5% alcohol.'],
@@ -62,10 +83,8 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function defaultSettings() {
-  let cur = 'USD';
-  try { if (/Saigon|Ho_Chi_Minh/.test(Intl.DateTimeFormat().resolvedOptions().timeZone)) cur = 'VND'; } catch (e) {}
   return {
-    ts: 0, top: 'quotes', cur, mode: 'avg', daily: 0, week: [0, 0, 0, 0, 0, 0, 0], // week = Sun..Sat (Date.getDay order)
+    ts: 0, top: 'quotes', cur: 'USD', theme: 'forest', mode: 'avg', daily: 0, week: [0, 0, 0, 0, 0, 0, 0], // week = Sun..Sat (Date.getDay order)
     drink: 'beer330', custom: { name: 'My drink', ml: 250, abv: 5 },
     x: 0, y: 'streak', acc: false, accEp: 0, notify: true, nh: 8, nm: 0,
   };
@@ -285,4 +304,24 @@ function mergeStates(a, b) {
   for (const e of [...a.events, ...b.events]) if (!byId[e.id]) byId[e.id] = e;
   out.events = Object.values(byId).map(clone);
   return normalize(out);
+}
+
+// ---------- colour packs ----------
+const THEMES = [
+  ['forest', 'Forest', '#0d1512', false], ['ocean', 'Ocean', '#0b1320', false], ['sunset', 'Sunset', '#1a0f1a', false],
+  ['midnight', 'Midnight', '#0a0a12', false], ['daylight', 'Daylight', '#f3f7f4', true],
+];
+
+// ---------- backup file (format 1; every later version must keep reading it) ----------
+const BACKUP_APP = 'random-sober-life';
+function makeBackup(st, key, version) {
+  return JSON.stringify({ app: BACKUP_APP, format: 1, saved: new Date().toISOString(), version: version || '', key: key || '', st }, null, 1);
+}
+function readBackup(text) {
+  const j = JSON.parse(text);
+  if (!j || j.app !== BACKUP_APP || !j.st || !j.st.snap) throw new Error('This is not a Random Sober Life backup.');
+  const st = j.st;
+  st.set = Object.assign(defaultSettings(), st.set || {});
+  st.events = st.events || []; st.dead = st.dead || [];
+  return { st: normalize(st), key: j.key || '', saved: j.saved || '' };
 }
