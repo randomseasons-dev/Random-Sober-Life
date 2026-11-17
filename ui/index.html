@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Random Sober Life</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand"><span class="logo"></span><span>Sober Journey</span></div>
+    <div class="top-r">
+      <span id="syncDot" class="sync-dot" title="Sync"></span>
+      <button id="btnSettings" class="icon-btn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M19.4 13a7.5 7.5 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1L15 3.5h-4L10.6 6a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.5 7.5 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="topCard" class="card top-card">
+      <div id="topBody" class="top-body"></div>
+      <div class="top-nav">
+        <button id="topPrev" class="nav-btn" aria-label="Previous">&#8249;</button>
+        <span id="topInfo" class="top-info"></span>
+        <button id="topNext" class="nav-btn" aria-label="Next">&#8250;</button>
+      </div>
+    </section>
+
+    <section class="card hero">
+      <div class="hero-label">Total sober time</div>
+      <div class="hero-row">
+        <div id="bigTime" class="big-time"></div>
+        <button id="btnMedal" class="medal-btn" aria-label="Milestones"></button>
+      </div>
+      <div class="money"><span id="moneyMain"></span><span id="moneyFrac" class="money-frac"></span><span class="money-label">saved</span></div>
+      <div id="nextMile" class="next-mile"></div>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><div class="stat-v" id="stCur"></div><div class="stat-l">Current streak</div></div>
+      <div class="stat"><div class="stat-v" id="stLong"></div><div class="stat-l">Longest streak</div></div>
+      <div class="stat"><div class="stat-v" id="stAvg"></div><div class="stat-l">Average streak</div></div>
+      <div class="stat"><div class="stat-v" id="stSR"></div><div class="stat-l">Streak resets</div></div>
+      <div class="stat"><div class="stat-v" id="stJR"></div><div class="stat-l">Journey resets</div></div>
+      <div class="stat"><div class="stat-v" id="stAcc"></div><div class="stat-l" id="stAccL">Drink rule</div></div>
+    </section>
+  </main>
+
+  <button id="fab" class="fab" aria-label="Log drinks">
+    <svg viewBox="0 0 24 24" width="30" height="30"><path d="M12 4v16M4 12h16" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<div id="modal" class="modal hidden"><div class="sheet" id="sheet"></div></div>
+<div id="toast" class="toast hidden"></div>
+
+<script src="quotes.js"></script>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
