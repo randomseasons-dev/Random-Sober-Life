@@ -85,7 +85,7 @@ object Notify {
         try { nm.notify(1, n) } catch (_: SecurityException) {}
     }
 
-    private fun moneyBetween(r: DoubleArray, t0: Double, t1: Double): Double {
+    fun moneyBetween(r: DoubleArray, t0: Double, t1: Double): Double {
         if (t1 <= t0) return 0.0
         if (r.all { it == r[0] }) return (t1 - t0) / DAY * r[0]
         var sum = 0.0; var cur = t0; var guard = 0
@@ -102,7 +102,7 @@ object Notify {
         return sum
     }
 
-    private fun fmtMoney(v: Double, f: JSONObject?): String {
+    fun fmtMoney(v: Double, f: JSONObject?): String {
         val d = f?.optInt("d", 2) ?: 2
         val pow = Math.pow(10.0, d.toDouble())
         val s = String.format(Locale.US, "%.${d}f", floor(v * pow) / pow)
@@ -145,5 +145,5 @@ object Notify {
 }
 
 class NotifyReceiver : BroadcastReceiver() {
-    override fun onReceive(c: Context, i: Intent) { Notify.tick(c) }
+    override fun onReceive(c: Context, i: Intent) { Notify.tick(c); Widgets.refresh(c) }
 }

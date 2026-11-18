@@ -1,0 +1,356 @@
+package com.randomseasons.randomsoberlife
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.DashPathEffect
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Shader
+import android.os.Build
+import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import android.widget.RemoteViews
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.Calendar
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * Home-screen widgets. The UI hands over the journey snapshot (start, erased time, streak start, money rates, theme colours)
+ * whenever it saves; the widgets count on from it by themselves, refreshed once a minute while the screen is on.
+ */
+object Widgets {
+    private const val DAY = 86_400_000.0
+    private const val HOUR = 3_600_000.0
+    private const val MIN = 60_000.0
+    const val TICK = "com.randomseasons.randomsoberlife.WIDGET_TICK"
+
+    private enum class Kind { A, C, E, F, G }
+
+    private val kinds = listOf(
+        Triple(WidgetCounter::class.java, R.layout.widget_a, Kind.A),
+        Triple(WidgetJourney::class.java, R.layout.widget_c, Kind.C),
+        Triple(WidgetDashboard::class.java, R.layout.widget_e, Kind.E),
+        Triple(WidgetJourneyQuote::class.java, R.layout.widget_f, Kind.F),
+        Triple(WidgetDashboardQuote::class.java, R.layout.widget_g, Kind.G),
+    )
+
+    private fun prefs(c: Context) = c.getSharedPreferences("rsl_widget", Context.MODE_PRIVATE)
+
+    fun setData(c: Context, data: String) {
+        prefs(c).edit().putString("data", data).apply()
+        refresh(c)
+    }
+
+    /** Redraw every placed widget, then keep (or stop) the once-a-minute refresh. */
+    fun refresh(c: Context) {
+        val am = AppWidgetManager.getInstance(c) ?: return
+        val j = try { JSONObject(prefs(c).getString("data", null) ?: "") } catch (e: Exception) { null }
+        var any = false
+        for ((cls, layout, kind) in kinds) {
+            val ids = try { am.getAppWidgetIds(ComponentName(c, cls)) } catch (e: Exception) { IntArray(0) }
+            if (ids.isEmpty()) continue
+            any = true
+            val rv = try { build(c, layout, kind, j) } catch (e: Exception) { null } ?: continue
+            for (id in ids) try { am.updateAppWidget(id, rv) } catch (_: Exception) {}
+        }
+        tick(c, any)
+    }
+
+    private fun tick(c: Context, on: Boolean) {
+        val alarm = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pi = PendingIntent.getBroadcast(c, 21, Intent(c, WidgetTick::class.java).setAction(TICK),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        alarm.cancel(pi)
+        if (!on) return
+        // RTC (not _WAKEUP): never wakes the phone; a missed minute is caught up when the screen turns on
+        val next = (System.currentTimeMillis() / 60_000L + 1) * 60_000L + 500L
+        alarm.setRepeating(AlarmManager.RTC, next, 60_000L, pi)
+    }
+
+    // ---------- colours ----------
+    private class Pal(val bg: Int, val bgAlpha: Int, val text: Int, val muted: Int, val money: Int, val quote: Int,
+                      val stat: Int, val fab: Int, val plus: Int, val line: Int)
+
+    private fun pal(c: Context, j: JSONObject?): Pal {
+        val col = j?.optJSONObject("col")
+        fun pc(n: String, d: String): Int = try { Color.parseColor(col?.optString(n)?.takeIf { it.isNotBlank() } ?: d) } catch (e: Exception) { Color.parseColor(d) }
+        val fab = pc("fab", "#d4705b")
+        val style = j?.optString("style", "app") ?: "app"
+        if (style == "clear") return Pal(Color.BLACK, 107, Color.WHITE, 0xBFFFFFFF.toInt(), 0xFFB8F0C4.toInt(), 0xFFFFE1B0.toInt(),
+            0xFFFFD7A8.toInt(), fab, Color.WHITE, 0x40FFFFFF)
+        if (style == "wall" && Build.VERSION.SDK_INT >= 31) {
+            val night = (c.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            fun sc(id: Int) = c.getColor(id)
+            return if (night) Pal(sc(android.R.color.system_neutral1_900), 255, sc(android.R.color.system_neutral1_50), sc(android.R.color.system_neutral2_300),
+                sc(android.R.color.system_accent1_200), sc(android.R.color.system_accent3_200), sc(android.R.color.system_accent2_200),
+                sc(android.R.color.system_accent1_300), sc(android.R.color.system_accent1_900), sc(android.R.color.system_neutral2_700))
+            else Pal(sc(android.R.color.system_neutral1_50), 255, sc(android.R.color.system_neutral1_900), sc(android.R.color.system_neutral2_600),
+                sc(android.R.color.system_accent1_600), sc(android.R.color.system_accent3_600), sc(android.R.color.system_accent2_600),
+                sc(android.R.color.system_accent1_600), Color.WHITE, sc(android.R.color.system_neutral2_200))
+        }
+        return Pal(pc("bg", "#233029"), 255, pc("text", "#ece6d8"), pc("muted", "#a3ad9c"), pc("money", "#9fd3a8"), pc("quote", "#e6c18f"),
+            pc("stat", "#d9a679"), fab, Color.WHITE, pc("line", "#3d4840"))
+    }
+
+    // ---------- journey numbers (same maths as ui/core.js derive) ----------
+    private class Now(val total: Double, val cur: Double, val longest: Double, val money: Double, val resets: Int,
+                      val k: Int, val kr: Int, val next: String, val progress: Double)
+
+    private fun numbers(j: JSONObject): Now {
+        val n = System.currentTimeMillis().toDouble()
+        val start = j.optDouble("start", n); val erased = j.optDouble("erased", 0.0)
+        val total = max(0.0, n - start - erased)
+        val cur = max(0.0, n - j.optDouble("streakStart", n))
+        val ra = j.optJSONArray("rates")
+        val r = DoubleArray(7) { i -> ra?.optDouble(i, 0.0) ?: 0.0 }
+        val money = max(0.0, Notify.moneyBetween(r, start, n) - erased / DAY * r.average())
+        val reached = max(j.optDouble("maxTotal", 0.0), total)
+        val miles = j.optJSONArray("miles") ?: JSONArray()
+        var k = -1; var kr = -1
+        for (i in 0 until miles.length()) {
+            val d = (miles.optJSONArray(i)?.optDouble(0) ?: 0.0) * DAY
+            if (total >= d) k = i
+            if (reached >= d) kr = i
+        }
+        val nx = miles.optJSONArray(k + 1)
+        val next: String; val prog: Double
+        if (nx != null) {
+            val nd = nx.optDouble(0) * DAY
+            val pd = if (k >= 0) (miles.optJSONArray(k)?.optDouble(0) ?: 0.0) * DAY else 0.0
+            next = "Next medal: ${nx.optString(1)} in ${dur(nd - total)}"
+            prog = if (nd > pd) ((total - pd) / (nd - pd)).coerceIn(0.0, 1.0) else 0.0
+        } else { next = "Every medal earned. Keep going."; prog = 1.0 }
+        return Now(total, cur, max(j.optDouble("sLong", 0.0), cur), money, j.optInt("sr", 0) + j.optInt("jr", 0), k, kr, next, prog)
+    }
+
+    private fun dur(ms: Double): String {
+        if (ms < HOUR) return "${floor(ms / MIN).toInt()}m"
+        if (ms < DAY) return "${floor(ms / HOUR).toInt()}h ${floor((ms % HOUR) / MIN).toInt()}m"
+        val days = ms / DAY
+        if (days < 30) return "${floor(days).toInt()}d ${floor((ms % DAY) / HOUR).toInt()}h"
+        val y = floor(days / 365.2425).toInt(); val mo = floor((days - y * 365.2425) / 30.436875).toInt()
+        val d = floor(days - y * 365.2425 - mo * 30.436875).toInt()
+        return if (y > 0) "${y}y ${mo}mo" else "${mo}mo ${d}d"
+    }
+
+    /** calendar years / months / days / hours of a duration ending now (port of ymdh in core.js) */
+    private fun ymdh(ms: Double): IntArray {
+        val T = System.currentTimeMillis()
+        val end = Calendar.getInstance().apply { timeInMillis = T }
+        val from = Calendar.getInstance().apply { timeInMillis = T - ms.toLong() }
+        var y = end.get(Calendar.YEAR) - from.get(Calendar.YEAR)
+        var m = end.get(Calendar.MONTH) - from.get(Calendar.MONTH)
+        fun probe(): Calendar = (from.clone() as Calendar).apply { isLenient = true; set(Calendar.YEAR, from.get(Calendar.YEAR) + y); set(Calendar.MONTH, from.get(Calendar.MONTH) + m); timeInMillis }
+        var p = probe()
+        if (p.timeInMillis > T) { m--; p = probe() }
+        while (m < 0) { m += 12; y-- }
+        var rest = max(0L, T - p.timeInMillis).toDouble()
+        val d = floor(rest / DAY).toInt(); rest -= d * DAY
+        return intArrayOf(y, m, d, floor(rest / HOUR).toInt())
+    }
+
+    // ---------- quote / reflection of the day (same pick as the app: day number mod list length) ----------
+    private fun quoteOfDay(c: Context, top: String): Pair<String, String> {
+        val k = Calendar.getInstance()
+        k.set(Calendar.HOUR_OF_DAY, 0); k.set(Calendar.MINUTE, 0); k.set(Calendar.SECOND, 0); k.set(Calendar.MILLISECOND, 0)
+        val day = floor(k.timeInMillis / DAY + 0.5).toLong()
+        val refl = top == "reflection"
+        val p = prefs(c)
+        val tag = "$day|$refl|2"
+        if (p.getString("qTag", "") == tag) return (p.getString("qText", "") ?: "") to (p.getString("qBy", "") ?: "")
+        return try {
+            val src = c.assets.open(if (refl) "reflections.js" else "quotes.js").use { it.readBytes().toString(Charsets.UTF_8) }
+            val arr = JSONArray(src.substring(src.indexOf("=[") + 1, src.lastIndexOf(']') + 1))
+            val n = arr.length()
+            val it = arr.getJSONArray((((day % n) + n) % n).toInt())
+            val out = if (refl) it.optString(1) to it.optString(0) else "“${it.optString(0)}”" to "— ${it.optString(1)}"
+            p.edit().putString("qTag", tag).putString("qText", out.first).putString("qBy", out.second).apply()
+            out
+        } catch (e: Exception) { "" to "" }
+    }
+
+    // ---------- artwork ----------
+    /** medal bitmap, a port of medalSvg (mode 0 = colour, 1 = black and white, 2 = locked) */
+    private fun medal(j: JSONObject, i: Int, mode: Int): Bitmap {
+        val s = 3f
+        val bmp = Bitmap.createBitmap((48 * s).toInt(), (56 * s).toInt(), Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp); cv.scale(s, s)
+        val all = j.optJSONArray("medals") ?: JSONArray()
+        val arr = all.optJSONArray(i.coerceIn(0, max(0, all.length() - 1)))
+        val col = IntArray(5) { idx -> try { Color.parseColor(arr?.optString(idx) ?: "#cccccc") } catch (e: Exception) { Color.GRAY } }
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        if (mode > 0) {
+            val cm = ColorMatrix(); cm.setSaturation(0f)
+            val b = if (mode == 1) .85f else .55f
+            cm.postConcat(ColorMatrix().apply { setScale(b, b, b, if (mode == 2) .45f else 1f) })
+            p.colorFilter = ColorMatrixColorFilter(cm)
+        }
+        fun poly(vararg xy: Float) = Path().apply { moveTo(xy[0], xy[1]); var q = 2; while (q < xy.size) { lineTo(xy[q], xy[q + 1]); q += 2 }; close() }
+        p.style = Paint.Style.FILL
+        p.color = col[0]; cv.drawPath(poly(12f, 0f, 21f, 0f, 28f, 18f, 19f, 18f), p)
+        p.color = col[1]; cv.drawPath(poly(36f, 0f, 27f, 0f, 20f, 18f, 29f, 18f), p)
+        p.shader = LinearGradient(8f, 20f, 40f, 52f, col[2], col[3], Shader.TileMode.CLAMP)
+        cv.drawCircle(24f, 36f, 16f, p); p.shader = null
+        p.style = Paint.Style.STROKE
+        p.strokeWidth = 1.5f; p.color = col[3]; cv.drawCircle(24f, 36f, 16f, p)
+        p.strokeWidth = 1f; p.color = col[4]; p.alpha = 140; cv.drawCircle(24f, 36f, 12.5f, p)
+        if (i >= 12) { p.alpha = 204; p.pathEffect = DashPathEffect(floatArrayOf(2f, 3f), 0f); cv.drawCircle(24f, 36f, 17.5f, p); p.pathEffect = null }
+        p.alpha = 255; p.style = Paint.Style.FILL; p.color = col[4]
+        val pts = 5 + (if (i >= 9) 3 else if (i >= 4) 1 else 0)
+        val big = 9.5f; val small = big * (if (pts > 5) .5f else .42f)
+        val star = Path()
+        for (q in 0 until pts * 2) {
+            val a = -PI / 2 + q * PI / pts; val rr = if (q % 2 == 1) small else big
+            val x = (24 + rr * cos(a)).toFloat(); val y = (36 + rr * sin(a)).toFloat()
+            if (q == 0) star.moveTo(x, y) else star.lineTo(x, y)
+        }
+        star.close(); cv.drawPath(star, p)
+        return bmp
+    }
+
+    private fun bar(progress: Double, track: Int, fill: Int): Bitmap {
+        val w = 600; val h = 12
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp); val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.color = track; cv.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), 6f, 6f, p)
+        val fw = (w * progress).toFloat()
+        if (fw > 1f) { p.color = fill; cv.drawRoundRect(RectF(0f, 0f, max(fw, h.toFloat()), h.toFloat()), 6f, 6f, p) }
+        return bmp
+    }
+
+    // ---------- building the views ----------
+    private fun span(vararg parts: Pair<String, Int>): CharSequence {
+        val b = SpannableStringBuilder()
+        for ((t, c) in parts) { val s = b.length; b.append(t); b.setSpan(ForegroundColorSpan(c), s, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+        return b
+    }
+
+    private fun build(c: Context, layout: Int, kind: Kind, j: JSONObject?): RemoteViews {
+        val rv = RemoteViews(c.packageName, layout)
+        val pl = pal(c, j)
+        rv.setInt(R.id.bg, "setColorFilter", pl.bg)
+        rv.setInt(R.id.bg, "setImageAlpha", pl.bgAlpha)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val open = PendingIntent.getActivity(c, 10, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), flags)
+        rv.setOnClickPendingIntent(R.id.root, open)
+        if (kind != Kind.A) {
+            val quick = PendingIntent.getActivity(c, 11, Intent(c, QuickLogActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION), flags)
+            rv.setOnClickPendingIntent(R.id.plus, quick)
+            rv.setInt(R.id.plusBg, "setColorFilter", pl.fab)
+            rv.setTextColor(R.id.plusTx, pl.plus)
+        }
+        fun tx(id: Int, t: CharSequence, color: Int) { rv.setTextViewText(id, t); rv.setTextColor(id, color) }
+
+        if (j == null) {
+            // no journey handed over yet: the app has not been opened since the widget was added
+            when (kind) {
+                Kind.A -> { tx(R.id.days, "–", pl.text); tx(R.id.sub, "OPEN THE APP", pl.muted); tx(R.id.money, "", pl.money) }
+                Kind.C, Kind.F -> { tx(R.id.time, "Open Random Sober Life", pl.text); tx(R.id.line, "", pl.muted) }
+                Kind.E, Kind.G -> { tx(R.id.money, "Open Random Sober Life", pl.text); tx(R.id.next, "", pl.muted) }
+            }
+            return rv
+        }
+
+        val n = numbers(j)
+        val fmt = j.optJSONObject("fmt")
+        val moneyTxt = Notify.fmtMoney(n.money, fmt)
+        val medalBmp = if (n.k >= 0) medal(j, n.k, 0) else if (n.kr >= 0) medal(j, n.kr, 1) else medal(j, 0, 2)
+        rv.setImageViewBitmap(R.id.medal, medalBmp)
+        val t = ymdh(n.total)
+        val timeLine = "${t[0]}y ${t[1]}m ${t[2]}d ${t[3]}h"
+        val moneyLine = span("$moneyTxt saved" to pl.money, "  ·  " to pl.muted, "streak ${dur(n.cur)}" to pl.stat)
+        fun ymdhCols() {
+            val ids = intArrayOf(R.id.ny, R.id.nm, R.id.nd, R.id.nh)
+            val labs = intArrayOf(R.id.ly, R.id.lm, R.id.ld, R.id.lh)
+            for (q in 0..3) { tx(ids[q], t[q].toString(), pl.text); rv.setTextColor(labs[q], pl.muted) }
+        }
+        fun stats() = tx(R.id.stats, span("Current " to pl.text, dur(n.cur) to pl.stat, "   Longest " to pl.text, dur(n.longest) to pl.stat,
+            "   Resets " to pl.text, n.resets.toString() to pl.stat), pl.text)
+        fun quote() {
+            val (q, by) = quoteOfDay(c, j.optString("top", "quotes"))
+            tx(R.id.quote, q, pl.quote); tx(R.id.by, by, pl.muted)
+        }
+        when (kind) {
+            Kind.A -> {
+                rv.setTextColor(R.id.lbl, pl.muted)
+                tx(R.id.days, floor(n.total / DAY).toInt().toString(), pl.text)
+                val h = floor((n.total % DAY) / HOUR).toInt()
+                tx(R.id.sub, (if (floor(n.total / DAY).toInt() == 1) "DAY" else "DAYS") + " · $h HOUR" + (if (h == 1) "" else "S"), pl.muted)
+                val whole = try { JSONObject(fmt?.toString() ?: "{}").put("d", 0) } catch (e: Exception) { fmt }
+                tx(R.id.money, "${Notify.fmtMoney(n.money, whole)} saved", pl.money)
+            }
+            Kind.C -> {
+                rv.setTextColor(R.id.lbl, pl.muted)
+                tx(R.id.next, n.next.replace("Next medal: ", "Next: "), pl.muted)
+                tx(R.id.time, timeLine, pl.text)
+                tx(R.id.line, moneyLine, pl.text)
+            }
+            Kind.E -> {
+                rv.setTextColor(R.id.lbl, pl.muted)
+                ymdhCols()
+                tx(R.id.money, "$moneyTxt saved", pl.money)
+                rv.setImageViewBitmap(R.id.bar, bar(n.progress, pl.line, pl.money))
+                tx(R.id.next, n.next, pl.muted)
+                stats()
+            }
+            Kind.F -> {
+                quote()
+                rv.setInt(R.id.sep, "setColorFilter", pl.line)
+                tx(R.id.time, timeLine, pl.text)
+                tx(R.id.line, moneyLine, pl.text)
+            }
+            Kind.G -> {
+                rv.setTextColor(R.id.lbl, pl.muted)
+                quote()
+                ymdhCols()
+                tx(R.id.money, "$moneyTxt saved", pl.money)
+                rv.setImageViewBitmap(R.id.bar, bar(n.progress, pl.line, pl.money))
+                tx(R.id.next, n.next, pl.muted)
+                stats()
+            }
+        }
+        return rv
+    }
+}
+
+/** shared behaviour of the five widget sizes (each needs its own class for the widget picker) */
+open class SoberWidget : AppWidgetProvider() {
+    override fun onUpdate(c: Context, m: AppWidgetManager, ids: IntArray) { Widgets.refresh(c) }
+    override fun onEnabled(c: Context) { Widgets.refresh(c) }
+    override fun onDisabled(c: Context) { Widgets.refresh(c) }
+    override fun onDeleted(c: Context, ids: IntArray) { Widgets.refresh(c) }
+    override fun onAppWidgetOptionsChanged(c: Context, m: AppWidgetManager, id: Int, o: Bundle) { Widgets.refresh(c) }
+}
+class WidgetCounter : SoberWidget()
+class WidgetJourney : SoberWidget()
+class WidgetDashboard : SoberWidget()
+class WidgetJourneyQuote : SoberWidget()
+class WidgetDashboardQuote : SoberWidget()
+
+/** the once-a-minute refresh */
+class WidgetTick : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) { Widgets.refresh(c) }
+}

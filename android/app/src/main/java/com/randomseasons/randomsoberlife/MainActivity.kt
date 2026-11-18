@@ -26,17 +26,21 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** Hosts the shared UI (assets = ../../ui) in a WebView served from https://appassets.androidplatform.net. */
-class MainActivity : Activity() {
+open class MainActivity : Activity() {
+    /** true in the floating quick-log popup opened from a widget's + button */
+    protected open val quick = false
     private lateinit var web: WebView
     private val host = "appassets.androidplatform.net"
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#0d1512")
-        window.navigationBarColor = Color.parseColor("#0d1512")
+        if (!quick) {
+            window.statusBarColor = Color.parseColor("#0d1512")
+            window.navigationBarColor = Color.parseColor("#0d1512")
+        }
         web = WebView(this)
-        web.setBackgroundColor(Color.parseColor("#0d1512"))
+        web.setBackgroundColor(if (quick) Color.TRANSPARENT else Color.parseColor("#0d1512"))
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.addJavascriptInterface(Bridge(), "RSL")
@@ -64,7 +68,7 @@ class MainActivity : Activity() {
             }
         }
         setContentView(web)
-        web.loadUrl("https://$host/index.html")
+        web.loadUrl(if (quick) "https://$host/index.html?quick=1" else "https://$host/index.html")
         // the notification permission is asked by the page once it has loaded (see askNotify)
     }
 
@@ -72,7 +76,7 @@ class MainActivity : Activity() {
     private var askPending = false
 
     private fun askNotifyPermission() {
-        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        if (quick || Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         if (!hasWindowFocus()) { askPending = true; return }
         askPending = false
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
@@ -90,7 +94,10 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (::web.isInitialized) notifChanged()
+        if (::web.isInitialized) {
+            notifChanged()
+            if (!quick) web.evaluateJavascript("window.__rslReload && window.__rslReload()", null)
+        }
     }
 
     private fun notifChanged() { web.evaluateJavascript("window.__rslNotifChanged && window.__rslNotifChanged()", null) }
@@ -175,7 +182,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         web.evaluateJavascript("(window.__rslBack && window.__rslBack()) ? 'y' : 'n'") { r ->
-            if (r?.contains("y") != true) moveTaskToBack(true)
+            if (r?.contains("y") != true) { if (quick) finish() else moveTaskToBack(true) }
         }
     }
 
@@ -211,6 +218,7 @@ class MainActivity : Activity() {
         }
         @Suppress("DEPRECATION")
         @JavascriptInterface fun setBars(bg: String, light: Boolean) {
+            if (quick) return
             runOnUiThread {
                 try {
                     val c = Color.parseColor(bg)
@@ -223,6 +231,8 @@ class MainActivity : Activity() {
             }
         }
         @JavascriptInterface fun setNotify(cfg: String) { Notify.setConfig(this@MainActivity, cfg) }
+        @JavascriptInterface fun widget(data: String) { Widgets.setData(this@MainActivity, data) }
+        @JavascriptInterface fun close() { runOnUiThread { finish(); if (quick) overridePendingTransition(0, android.R.anim.fade_out) } }
 
         @JavascriptInterface
         fun http(id: String, method: String, url: String, body: String) {
@@ -253,4 +263,9 @@ class MainActivity : Activity() {
             }.start()
         }
     }
+}
+
+/** Floating "Log drinks" popup over the home screen (the widget's + button); same UI, only the drinks sheet. */
+class QuickLogActivity : MainActivity() {
+    override val quick = true
 }

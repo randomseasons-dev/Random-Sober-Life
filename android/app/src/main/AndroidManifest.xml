@@ -32,5 +32,37 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+        <!-- floating "Log drinks" popup from a widget's + button (own task, so the main window doesn't pop up) -->
+        <activity
+            android:name=".QuickLogActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity="com.randomseasons.randomsoberlife.quick"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize" />
+
+        <receiver android:name=".WidgetCounter" android:label="Sober counter" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_counter" />
+        </receiver>
+        <receiver android:name=".WidgetJourney" android:label="Journey card" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_journey" />
+        </receiver>
+        <receiver android:name=".WidgetDashboard" android:label="Journey dashboard" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_dashboard" />
+        </receiver>
+        <receiver android:name=".WidgetJourneyQuote" android:label="Journey card + quote" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_journey_quote" />
+        </receiver>
+        <receiver android:name=".WidgetDashboardQuote" android:label="Dashboard + quote" android:exported="false">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_dashboard_quote" />
+        </receiver>
+        <receiver android:name=".WidgetTick" android:exported="false" />
     </application>
 </manifest>

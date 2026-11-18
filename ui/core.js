@@ -86,7 +86,7 @@ function defaultSettings() {
   return {
     ts: 0, top: 'quotes', cur: 'USD', theme: 'forest', mode: 'avg', daily: 0, week: [0, 0, 0, 0, 0, 0, 0], // week = Sun..Sat (Date.getDay order)
     drink: 'beer330', custom: { name: 'My drink', ml: 250, abv: 5 },
-    x: 0, y: 'streak', acc: false, accEp: 0, notify: true, nh: 8, nm: 0,
+    x: 0, y: 'streak', acc: false, accEp: 0, notify: true, nh: 8, nm: 0, wstyle: 'app',
   };
 }
 function newSnap(start) {

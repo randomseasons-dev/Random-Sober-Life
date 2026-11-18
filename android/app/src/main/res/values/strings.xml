@@ -1,0 +1,7 @@
+<resources>
+    <string name="widget_counter_d">Days sober and money saved</string>
+    <string name="widget_journey_d">Total sober time, money, streak and a + to log drinks</string>
+    <string name="widget_dashboard_d">Everything at a glance: time, money, next medal, streaks</string>
+    <string name="widget_journey_quote_d">Journey card with the quote of the day</string>
+    <string name="widget_dashboard_quote_d">Dashboard with the quote of the day</string>
+</resources>

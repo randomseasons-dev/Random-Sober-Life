@@ -13,6 +13,19 @@ Everything stays on your devices — no account, no tracking. The two apps can s
 - **Bottom:** current streak, longest streak, average streak, streak resets, journey resets.
 - **Red + button:** log how many drinks and when (Day · Hour · Minute lists, defaults to now, with a Now button). The last 5 entries are listed; deleting one fully undoes it.
 
+## Android home-screen widgets
+
+Long-press the home screen, then Widgets, then Random Sober Life:
+
+- **Sober counter** (2x2): days sober and money saved.
+- **Journey card** (4x2): total sober time, medal, money, current streak, next medal.
+- **Journey dashboard** (4x3): years, months, days and hours, money, progress to the next medal, streaks and resets.
+- **Journey card + quote** (4x3) and **Dashboard + quote** (4x4): the same with the quote (or reflection) of the day.
+
+The **+** on a widget opens a small floating Log drinks window over the home screen; the app itself stays closed.
+Widget style (Settings): follow the app's colours, wallpaper colours (Android 12+), or see-through.
+Widgets refresh once a minute while the screen is on.
+
 ## Settings
 
 - Top section: quotes / daily reflection / off.

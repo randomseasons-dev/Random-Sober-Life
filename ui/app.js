@@ -63,7 +63,12 @@ const Native = {
   askNotify() { if (AND) AND.askNotify(); },
   openNotifySettings() { if (AND) AND.openNotifySettings(); },
   setBars(bg, light) { if (AND && AND.setBars) AND.setBars(bg, !!light); },
+  widget(data) { if (AND && AND.widget) AND.widget(JSON.stringify(data)); },
+  close() { if (AND && AND.close) AND.close(); },
 };
+// quick-log popup (Android widget "+"): only the Log drinks sheet, floating over the home screen
+const QUICK = /[?&]quick=1/.test(location.search);
+if (QUICK) document.documentElement.classList.add('quick');
 const fileWait = {};
 window.__rslFile = (id, ok, text) => { const f = fileWait[id]; delete fileWait[id]; if (f) f({ ok, text }); };
 function fileCall(start) { return new Promise((res) => { const id = rid(); fileWait[id] = res; start(id); }); }
@@ -78,8 +83,30 @@ function persist() {
   // automatic backup file (outside the app's own data, so it survives a reinstall)
   clearTimeout(persist.bk);
   if (ST && ST.snap.gen) persist.bk = setTimeout(() => Native.backupAuto(makeBackup(ST, LOC.key, VIEW.version)), 2500);
+  pushWidget();
+}
+// home-screen widgets (Android): the journey numbers + the saved theme's colours; the widget counts on from these
+function pushWidget(now_) {
+  if (Native.platform !== 'android' || !ST || !ST.snap.gen) return;
+  clearTimeout(pushWidget.h);
+  const go = () => {
+    const s = ST.set, sn = derive(ST, now()).s;
+    const probe = document.createElement('div'); probe.dataset.theme = s.theme || 'forest'; probe.style.display = 'none';
+    document.body.appendChild(probe);
+    const cs = getComputedStyle(probe), v = (n) => cs.getPropertyValue('--' + n).trim();
+    const th = THEMES.find((x) => x[0] === s.theme) || THEMES[0];
+    const col = { bg: v('card'), text: v('text'), muted: v('muted'), money: v('money'), quote: v('quote'), stat: v('stat'), fab: v('fab'), line: v('line'), light: !!th[3] };
+    probe.remove();
+    Native.widget({
+      start: sn.start, erased: sn.erased, streakStart: sn.streakStart, sLong: sn.sLong, sr: sn.sr, jr: sn.jr, maxTotal: sn.maxTotal,
+      rates: rates(s), fmt: curFmt(s.cur), miles: MILESTONES.map((m) => [m[0], m[1]]), medals: MEDAL_COLS,
+      top: s.top, style: s.wstyle || 'app', col,
+    });
+  };
+  if (now_) go(); else pushWidget.h = setTimeout(go, 300);
 }
 function changed(settings) {
+  if (QUICK) VIEW.qChanged = true;
   if (settings) ST.set.ts = now();
   ST.edit = now();                     // last input on this device: the newest input wins when syncing
   normalize(ST);
@@ -182,7 +209,9 @@ function openModal(name, html, wire) {
   $('sheet').querySelectorAll('[data-close]').forEach((b) => (b.onclick = closeModal));
   if (wire) wire($('sheet'));
 }
-function closeModal() { VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = ''; if (ST) applyTheme(ST.set.theme); render(); }
+function closeModal() {
+  if (QUICK) { $('modal').classList.add('hidden'); finishQuick(); return; }
+  VIEW.modal = null; $('modal').classList.add('hidden'); $('sheet').innerHTML = ''; if (ST) applyTheme(ST.set.theme); render(); }
 $('modal').onclick = (e) => { if (e.target === $('modal') && VIEW.modal !== 'setup' && VIEW.modal !== 'choose') closeModal(); };
 window.__rslBack = () => { if (VIEW.modal && VIEW.modal !== 'setup' && VIEW.modal !== 'choose') { closeModal(); return true; } return false; };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__rslBack(); });
@@ -203,6 +232,29 @@ function dayOptions(T, minT) {
   return out.join('');
 }
 const fmtWhen = (T) => new Date(T).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// quick-log popup done: save the backup, tell the widget and the other devices, then close the popup
+async function finishQuick() {
+  if (finishQuick.busy) return; finishQuick.busy = true;
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (VIEW.qChanged && ST) {
+    clearTimeout(persist.bk); Native.backupAuto(makeBackup(ST, LOC.key, VIEW.version));
+    pushWidget(true);
+    clearTimeout(SY.pubTimer);
+    await Promise.all([wait(1300), LOC.key && LOC.auto ? Promise.race([publish(), wait(6000)]) : null]);
+  }
+  Native.close();
+}
+// the main window comes back after a quick log: pick up the newer saved journey
+window.__rslReload = async () => {
+  if (QUICK || !ST) return;
+  let j = null; try { j = JSON.parse(await Native.load()); } catch (e) { return; }
+  if (!j || !j.st || !j.st.snap || (j.st.edit || 0) <= (ST.edit || 0)) return;
+  ST = j.st; ST.set = Object.assign(defaultSettings(), ST.set || {}); ST.events = ST.events || []; ST.dead = ST.dead || []; normalize(ST);
+  if (j.loc && (j.loc.pubAt || 0) > (LOC.pubAt || 0)) { LOC.pub = j.loc.pub; LOC.pubAt = j.loc.pubAt; }
+  if (!VIEW.modal) { applyTheme(ST.set.theme); render(); }
+  pushNotify();
+};
 
 // ---------- log drinks ----------
 function openDrinks() {
@@ -332,7 +384,11 @@ function openSettings() {
       <div class="seg" id="segTop"><button data-v="quotes">Quotes</button><button data-v="reflection">Daily reflection</button><button data-v="off">Off</button></div></div>
 
     <div class="sec"><h3>Colours</h3><div class="themes" id="themes">${themeBtns}</div></div>
-
+${Native.platform === 'android' ? `
+    <div class="sec"><h3>Home-screen widgets</h3>
+      <div class="seg" id="segW"><button data-v="app">Follow app</button><button data-v="wall">Wallpaper colours</button><button data-v="clear">See-through</button></div>
+      <div class="hint">Add one: long-press the home screen → Widgets → Random Sober Life. Wallpaper colours need Android 12 or newer.</div></div>
+` : ''}
     <div class="sec"><h3>Money</h3>
       <div class="row"><label>Currency</label><select id="sCur" class="grow">${curOpts}</select></div>
       <div class="row"><label>Money spent per day before quitting</label></div>
@@ -381,6 +437,7 @@ function openSettings() {
       el.querySelectorAll('button').forEach((b) => (b.onclick = () => { paint(b.dataset.v); cb(b.dataset.v); }));
     };
     seg('#segTop', s.top, (v) => (s.top = v));
+    if (sh.querySelector('#segW')) seg('#segW', s.wstyle || 'app', (v) => (s.wstyle = v));
     const paintTh = () => sh.querySelectorAll('[data-th]').forEach((b) => b.classList.toggle('on', b.dataset.th === s.theme));
     sh.querySelectorAll('[data-th]').forEach((b) => (b.onclick = () => { s.theme = b.dataset.th; paintTh(); applyTheme(s.theme); }));
     paintTh();
@@ -658,6 +715,11 @@ function openSetup() {
   if (!ST) {
     const bk = await Native.findBackup();          // Windows: a reinstall finds its automatic backup
     if (bk) restoreFrom(bk, false);
+  }
+  if (QUICK) {
+    if (!ST) { toast('Open Random Sober Life first to start your journey.', 3000); setTimeout(() => Native.close(), 3000); return; }
+    applyTheme(ST.set.theme); render(); openDrinks();
+    return;
   }
   if (!ST) openSetup(); else { applyTheme(ST.set.theme); render(); pushNotify(); }
   persist();
