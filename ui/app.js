@@ -71,7 +71,7 @@ function fileCall(start) { return new Promise((res) => { const id = rid(); fileW
 // ---------- app state ----------
 let ST = null;            // synced: { snap, events, dead, set }
 let LOC = { dev: rid(), key: '', last: '', joining: false, pub: '', pubAt: 0, auto: true, devs: {} };   // this device only
-let VIEW = { qOff: 0, qDay: 0, rd: [], rdI: 0, rdAfter: null, rdState: 'idle', modal: null, version: '' };
+let VIEW = { qOff: 0, qDay: 0, rOff: 0, rDay: 0, modal: null, version: '' };
 
 function persist() {
   Native.save(JSON.stringify({ st: ST, loc: LOC }));
@@ -108,54 +108,15 @@ function renderTop() {
     info.textContent = VIEW.qOff === 0 ? 'Quote of the day' : (VIEW.qOff > 0 ? '+' : '') + VIEW.qOff + ' from today';
     return;
   }
-  // reddit
-  const p = VIEW.rd[VIEW.rdI];
-  if (!p) {
-    if (VIEW.rdState === 'idle') loadReddit();
-    body.innerHTML = VIEW.rdState === 'error'
-      ? `<div class="rd-msg">Couldn't load r/stopdrinking. <button class="btn small ghost" id="rdRetry">Retry</button></div>`
-      : `<div class="rd-msg">Loading r/stopdrinking&hellip;</div>`;
-    info.textContent = 'r/stopdrinking · hot';
-    const rb = $('rdRetry'); if (rb) rb.onclick = () => { VIEW.rdState = 'idle'; renderTop(); };
-    return;
-  }
-  const txt = (p.text || '').trim(), snip = txt.length > 400 ? txt.slice(0, 400).replace(/\s+\S*$/, '') + '…' : txt;
-  const ago = fmtDur(Math.max(0, now() - p.created * 1000));
-  body.innerHTML = `<div class="rd-title" data-u>${esc(p.title)}</div>${snip ? `<div class="rd-text" data-u>${esc(snip)}</div>` : ''}
-    <div class="rd-meta">▲ ${p.score} · ${p.comments} comments · u/${esc(p.author)} · ${ago} ago</div>`;
-  body.querySelectorAll('[data-u]').forEach((el) => (el.onclick = () => Native.open('https://www.reddit.com' + p.link)));
-  info.textContent = `r/stopdrinking · hot ${VIEW.rdI + 1}/${VIEW.rd.length}`;
+  // daily recovery reflection (one per day, arrows browse, back to today's on the next day)
+  const today = dayNo(now());
+  if (VIEW.rDay !== today) { VIEW.rDay = today; VIEW.rOff = 0; }
+  const N = REFLECTIONS.length, i = (((today + VIEW.rOff) % N) + N) % N, r = REFLECTIONS[i];
+  body.innerHTML = `<div class="rf-title">${esc(r[0])}</div><div class="rf-text">${esc(r[1])}</div>`;
+  info.textContent = VIEW.rOff === 0 ? 'Reflection of the day' : (VIEW.rOff > 0 ? '+' : '') + VIEW.rOff + ' from today';
 }
-async function loadReddit(more) {
-  VIEW.rdState = 'loading';
-  const q = '?limit=25&raw_json=1' + (more && VIEW.rdAfter ? '&after=' + VIEW.rdAfter : '');
-  for (const host of ['https://www.reddit.com', 'https://old.reddit.com']) {
-    try {
-      const r = await Native.http('GET', host + '/r/stopdrinking/hot.json' + q);
-      if (r.status !== 200) continue;
-      const j = JSON.parse(r.body);
-      const posts = j.data.children.map((c) => c.data).filter((d) => !d.stickied).map((d) => ({
-        title: d.title, text: d.selftext || '', score: d.score, comments: d.num_comments, author: d.author,
-        created: d.created_utc, link: d.permalink }));
-      VIEW.rd = more ? VIEW.rd.concat(posts) : posts;
-      VIEW.rdAfter = j.data.after;
-      VIEW.rdState = 'ok';
-      renderTop();
-      return;
-    } catch (e) {}
-  }
-  VIEW.rdState = more && VIEW.rd.length ? 'ok' : 'error';
-  renderTop();
-}
-$('topPrev').onclick = () => {
-  if (ST.set.top === 'quotes') VIEW.qOff--; else if (VIEW.rdI > 0) VIEW.rdI--;
-  renderTop();
-};
-$('topNext').onclick = () => {
-  if (ST.set.top === 'quotes') VIEW.qOff++;
-  else if (VIEW.rdI < VIEW.rd.length - 1) { VIEW.rdI++; if (VIEW.rdI >= VIEW.rd.length - 3 && VIEW.rdAfter && VIEW.rdState === 'ok') loadReddit(true); }
-  renderTop();
-};
+$('topPrev').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff--; else VIEW.rOff--; renderTop(); };
+$('topNext').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff++; else VIEW.rOff++; renderTop(); };
 
 function mileIndex(ms) { let k = -1; MILESTONES.forEach((m, i) => { if (ms >= m[0] * DAY) k = i; }); return k; }
 function render() {
@@ -228,6 +189,19 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__r
 const head = (t, closable = true) => `<div class="sh-head"><h2>${t}</h2>${closable ? '<button class="x-btn" data-close>&times;</button>' : ''}</div>`;
 const toLocalInput = (T) => { const d = new Date(T - new Date(T).getTimezoneOffset() * MIN); return d.toISOString().slice(0, 16); };
 const fromLocalInput = (s) => new Date(s).getTime();
+const pad2 = (v) => String(v).padStart(2, '0');
+const dayStart = (T) => { const d = new Date(T); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+// Day list for the drink time: Today, Yesterday, then older dates back to the earliest allowed day (at most 60 days)
+function dayOptions(T, minT) {
+  const out = [], first = dayStart(Math.max(minT || 0, T - 59 * DAY));
+  for (let i = 0; i < 60; i++) {
+    const d = new Date(T); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    if (d.getTime() < first) break;
+    const lbl = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+    out.push(`<option value="${d.getTime()}">${esc(lbl)}</option>`);
+  }
+  return out.join('');
+}
 const fmtWhen = (T) => new Date(T).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 // ---------- log drinks ----------
@@ -243,18 +217,28 @@ function openDrinks() {
   openModal('drinks', `${head('Log drinks')}
     <div class="sec">
       <div class="drink-in"><div id="spN"></div>
-        <div><div class="row"><label>When</label></div><input type="datetime-local" id="dT" value="${toLocalInput(T)}" min="${toLocalInput(D.minT)}" max="${toLocalInput(T)}"></div></div>
+        <div class="when"><label>When</label><div class="when-row">
+          <select id="dD">${dayOptions(T, D.minT)}</select>
+          <select id="dH">${range(0, 23).map((h) => `<option value="${h}">${pad2(h)}</option>`).join('')}</select><b>:</b>
+          <select id="dM">${range(0, 59).map((m) => `<option value="${m}">${pad2(m)}</option>`).join('')}</select>
+          <button type="button" class="btn small ghost" id="dNow">Now</button></div></div></div>
       <div class="hint">1 drink = ${esc(di.name)} (about ${di.g.toFixed(0)} g of alcohol).<br>Rule: ${esc(ruleText(ST.set))}</div>
       <div class="row" style="margin-top:12px"><button class="btn red wide" id="dGo">Log drinks</button></div>
     </div>
     <div class="sec"><h3>Last 5 entries</h3><div class="hist">${rows}</div>
       <div class="hint">Deleting an entry fully undoes what it did.</div></div>`, (sh) => {
     sh.querySelector('#spN').appendChild(spinner(range(1, 99), 0, (v) => (n = v)));
+    const dD = sh.querySelector('#dD'), dH = sh.querySelector('#dH'), dM = sh.querySelector('#dM');
+    const setNow = () => { const d = new Date(); dD.value = String(dayStart(d.getTime())); dH.value = String(d.getHours()); dM.value = String(d.getMinutes()); };
+    setNow();
+    sh.querySelector('#dNow').onclick = setNow;
     sh.querySelector('#dGo').onclick = () => {
-      let t = fromLocalInput(sh.querySelector('#dT').value);
+      const d0 = new Date(+dD.value);
+      let t = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(), +dH.value, +dM.value, 0).getTime();
       if (!isFinite(t)) t = now();
+      const isNow = Math.abs(t - now()) < MIN;     // "now" keeps the exact current time
       const T2 = now(), D2 = derive(ST, T2);
-      if (t > T2) t = T2;
+      if (t > T2 || isNow) t = T2;
       if (t < D2.minT) { toast('The time can’t be before your last entry or the journey start.'); return; }
       const s = ST.set;
       ST.events.push({ id: rid(), t, n, x: s.x, y: s.y, acc: !!s.acc, ep: s.accEp, dev: LOC.dev });
@@ -324,10 +308,9 @@ function wireNums(root) {
 }
 
 // ---------- colour packs ----------
-const THEME_ACCENT = { forest: '#3ccf8e', ocean: '#38bdf8', sunset: '#ff9f43', midnight: '#a78bfa', daylight: '#1f9d63' };
 function applyTheme(name) {
   const t = THEMES.find((x) => x[0] === name) || THEMES[0];
-  if (t[0] === 'forest') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t[0];
+  document.documentElement.dataset.theme = t[0];
   Native.setBars(t[2], t[3]);
 }
 
@@ -342,11 +325,11 @@ function openSettings() {
   const nt = String(s.nh).padStart(2, '0') + ':' + String(s.nm).padStart(2, '0');
   const D = derive(ST, now());
   const canEditStart = !ST.events.length && !ST.snap.folded;
-  const themeBtns = THEMES.map((t) => `<button data-th="${t[0]}"><i style="background:linear-gradient(135deg,${t[2]} 45%,${THEME_ACCENT[t[0]]} 46%)"></i>${t[1]}</button>`).join('');
+  const themeBtns = THEMES.map((t) => `<button data-th="${t[0]}"><i style="background:linear-gradient(90deg,${t[4]} 0 34%,${t[5]} 34% 67%,${t[6]} 67%)"></i>${t[1]}</button>`).join('');
   const bkWhere = Native.platform === 'win' ? 'Documents\\Random Sober Life' : 'Download/Random Sober Life';
   openModal('settings', `${head('Settings')}
     <div class="sec"><h3>Top section</h3>
-      <div class="seg" id="segTop"><button data-v="quotes">Quotes</button><button data-v="reddit">r/stopdrinking</button><button data-v="off">Off</button></div></div>
+      <div class="seg" id="segTop"><button data-v="quotes">Quotes</button><button data-v="reflection">Daily reflection</button><button data-v="off">Off</button></div></div>
 
     <div class="sec"><h3>Colours</h3><div class="themes" id="themes">${themeBtns}</div></div>
 
@@ -388,7 +371,7 @@ function openSettings() {
       <div class="row"><label>Started</label><input type="datetime-local" id="sStart" value="${toLocalInput(ST.snap.start)}" ${canEditStart ? '' : 'disabled'} class="grow"></div>
       <div class="hint">${canEditStart ? 'You can change the start until you log your first drink.' : 'Journey start: ' + esc(fmtWhen(D.s.start))}</div>
       <div class="row"><button class="btn ghost small" id="sWipe">Start over (erase everything)</button></div></div>
-    <div class="hint" style="text-align:center">Random Sober Life ${esc(VIEW.version)} · ${QUOTES.length} quotes</div>
+    <div class="hint" style="text-align:center">Random Sober Life ${esc(VIEW.version)} · ${QUOTES.length} quotes · ${REFLECTIONS.length} reflections</div>
     <div class="done-bar"><button class="btn wide" id="sDone">SAVE and Close</button></div>`, (sh) => {
     wireNums(sh);
     const seg = (id, val, cb) => {
@@ -455,7 +438,6 @@ function openSettings() {
       s.daily = money(sh.querySelector('#sDaily').value);
       sh.querySelectorAll('[data-wd]').forEach((inp) => (s.week[+inp.dataset.wd] = money(inp.value)));
       cust();
-      if (s.top === 'reddit' && VIEW.rdState === 'error') VIEW.rdState = 'idle';
       const askN = s.notify && !ST.set.notify;
       ST.set = s;
       if (autoWanted !== null) Native.setAutostart(autoWanted);
@@ -664,6 +646,7 @@ function openSetup() {
 // ---------- start ----------
 (async function start() {
   VIEW.version = await Native.version().catch(() => '');
+  $('appVer').textContent = VIEW.version ? VIEW.version.replace(/\.0$/, '') : '';
   let raw = null; try { raw = await Native.load(); } catch (e) {}
   if (raw) {
     try {

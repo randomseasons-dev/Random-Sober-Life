@@ -230,7 +230,7 @@ class MainActivity : Activity() {
                 var status = 0
                 var text: String
                 try {
-                    if (!(url.startsWith("https://ntfy.sh/") || url.startsWith("https://www.reddit.com/") || url.startsWith("https://old.reddit.com/"))) {
+                    if (!(url.startsWith("https://ntfy.sh/"))) {
                         throw IllegalArgumentException("blocked url")
                     }
                     val c = URL(url).openConnection() as HttpURLConnection

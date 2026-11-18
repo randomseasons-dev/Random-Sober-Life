@@ -19,8 +19,8 @@ android {
         applicationId = "com.randomseasons.randomsoberlife"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
     // the shared UI (../../ui) is served from the APK assets
     sourceSets {

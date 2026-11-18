@@ -139,6 +139,7 @@ function normalize(st) {
   }
   st.snap.fids = st.snap.fids.slice(-MAX_FIDS);
   st.dead = st.dead.slice(-MAX_DEAD);
+  if (st.set && st.set.top === 'reddit') st.set.top = 'reflection';   // 1.3: Reddit replaced by daily reflections
   return st;
 }
 
@@ -307,9 +308,18 @@ function mergeStates(a, b) {
 }
 
 // ---------- colour packs ----------
+// [id, name, bar colour, light?, hero, money, fab]
 const THEMES = [
-  ['forest', 'Forest', '#0d1512', false], ['ocean', 'Ocean', '#0b1320', false], ['sunset', 'Sunset', '#1a0f1a', false],
-  ['midnight', 'Midnight', '#0a0a12', false], ['daylight', 'Daylight', '#f3f7f4', true],
+  ['forest', 'Forest cabin', '#1a2420', false, '#2c4034', '#9fd3a8', '#d4705b'],
+  ['ocean', 'Ocean dusk', '#17212b', false, '#263b4c', '#8fd0d3', '#e07a6b'],
+  ['sunset', 'Sunset ember', '#241a1e', false, '#46302f', '#f2b27a', '#d9614f'],
+  ['midnight', 'Midnight lavender', '#1b1a26', false, '#322f47', '#c3b1f0', '#d96d8a'],
+  ['daylight', 'Daylight meadow', '#f5f1e8', true, '#e4eedb', '#3e8e5e', '#d0624e'],
+  ['autumn', 'Autumn tea', '#221c17', false, '#3d3026', '#e3b26a', '#c8553d'],
+  ['sakura', 'Sakura night', '#22191f', false, '#3d2b36', '#f2a7c0', '#e0607e'],
+  ['cafe', 'Rainy cafe', '#1e1f22', false, '#3a3632', '#d6b48c', '#c86b5a'],
+  ['aurora', 'Northern lights', '#121c22', false, '#1d3a3d', '#7ee0b5', '#e2706b'],
+  ['lavender', 'Lavender field', '#f4f1f8', true, '#e8e1f3', '#6f5bb5', '#d0607a'],
 ];
 
 // ---------- backup file (format 1; every later version must keep reading it) ----------

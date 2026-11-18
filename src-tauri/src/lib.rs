@@ -1,5 +1,5 @@
 //! Random Sober Life — Windows shell. The UI (ui/) holds all journey logic; Rust stores the state file,
-//! makes HTTP calls for the UI (relay sync, Reddit), and shows the daily summary notification from the tray.
+//! makes HTTP calls for the UI (relay sync), and shows the daily summary notification from the tray.
 mod notify;
 
 use serde_json::{json, Value};
@@ -45,7 +45,7 @@ fn save_state(app: AppHandle, data: String) -> Result<(), String> {
 #[tauri::command]
 async fn http_req(method: String, url: String, body: String) -> Value {
     tauri::async_runtime::spawn_blocking(move || {
-        if !(url.starts_with("https://ntfy.sh/") || url.starts_with("https://www.reddit.com/") || url.starts_with("https://old.reddit.com/")) {
+        if !(url.starts_with("https://ntfy.sh/")) {
             return json!({"status": 0, "body": "blocked url"});
         }
         let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(25)).build();

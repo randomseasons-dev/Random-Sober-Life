@@ -5,20 +5,21 @@ Everything stays on your devices — no account, no tracking. The two apps can s
 
 ## Main screen
 
-- **Top:** an inspirational quote of the day (2,800+ quotes about effort, life, recovery and meaning, in a fixed shuffled order).
-  The arrows browse; the next day jumps back to that day's quote. Can be switched to the hot posts of
-  [r/stopdrinking](https://www.reddit.com/r/stopdrinking/) or turned off.
+- **Top:** a gentle quote of the day (1,100+ soft, caring quotes about the inner journey, peace and growth, in a fixed
+  shuffled order), or a **daily recovery reflection** (100 short, kind notes for the day), or off.
+  The arrows browse; the next day jumps back to that day's quote or reflection.
 - **Middle:** total sober time as **Years · Months · Days · Hours**, a medal for the latest milestone, and the money saved,
   growing every second.
 - **Bottom:** current streak, longest streak, average streak, streak resets, journey resets.
-- **Red + button:** log how many drinks and when (defaults to now). The last 5 entries are listed; deleting one fully undoes it.
+- **Red + button:** log how many drinks and when (Day · Hour · Minute lists, defaults to now, with a Now button). The last 5 entries are listed; deleting one fully undoes it.
 
 ## Settings
 
-- Top section: quotes / r/stopdrinking / off.
-- Colours: 5 packs (Forest, Ocean, Sunset, Midnight, Daylight).
+- Top section: quotes / daily reflection / off.
+- Colours: 10 cozy packs, each with its own colours for the quote, money, stats and + button (Forest cabin, Ocean dusk,
+  Sunset ember, Midnight lavender, Daylight meadow, Autumn tea, Sakura night, Rainy cafe, Northern lights, Lavender field).
 - Currency (30 currencies, USD first) and money spent per day before quitting — one average amount, or one amount for each
-  day of the week (up to 1,000,000 per day).
+  day of the week.
 - What counts as one drink: 7 common measures (beer 330 ml, large beer 500 ml, pint, wine, spirit shot, cocktail,
   standard drink) or your own (name, ml, alcohol %).
 - Drink rule: **"X drinks will erase Y days in stats"** — X = Any or 1–30, Y = All (journey reset), One streak, or 1–30 days.
