@@ -232,6 +232,93 @@ object Widgets {
         return bmp
     }
 
+    // ---------- health tree (port of treeSvg in core.js: same seeds, same tree) ----------
+    private class Mulberry(var a: Int) {
+        fun next(): Double {
+            a += 0x6D2B79F5
+            var t = (a xor (a ushr 15)) * (1 or a)
+            t = (t + (t xor (t ushr 7)) * (61 or t)) xor t
+            return (t xor (t ushr 14)).toUInt().toDouble() / 4294967296.0
+        }
+    }
+    private class Leaf(val u: Double, val x: Double, val y: Double, val rot: Double, val s: Double, val sh: Int, val z: Double)
+    private class Sk(val segs: List<DoubleArray>, val leaves: List<Leaf>, val grass: List<DoubleArray>)
+    private val treeCov = doubleArrayOf(0.0, .1, .22, .36, .5, .64, .77, .88, .96, 1.0)
+    private val sk: Sk by lazy {
+        val r = Mulberry(7); val segs = ArrayList<DoubleArray>(); val pts = ArrayList<DoubleArray>()
+        fun br(x: Double, y: Double, a: Double, len: Double, w: Double, d: Int) {
+            val x2 = x + cos(a) * len; val y2 = y + sin(a) * len
+            segs.add(doubleArrayOf(x, y, x2, y2, w))
+            if (d <= 2) pts.add(doubleArrayOf(x2, y2, d.toDouble()))
+            if (d == 0) return
+            val n = 2 + (if (r.next() < 0.35) 1 else 0)
+            for (k in 0 until n) {
+                val na = a + (k - (n - 1) / 2.0) * (0.48 + r.next() * 0.22) + (r.next() - 0.5) * 0.22
+                br(x2, y2, na, len * (0.7 + r.next() * 0.1), w * 0.64, d - 1)
+            }
+        }
+        br(50.0, 102.0, -PI / 2, 23.0, 6.5, 5)
+        val r2 = Mulberry(99); val leaves = ArrayList<Leaf>()
+        for (p in pts) {
+            val u = r2.next(); val n = if (p[2] == 0.0) 7 else 5
+            for (k in 0 until n) {
+                val a = r2.next() * PI * 2; val d = 1 + r2.next() * 5.5
+                val x = p[0] + cos(a) * d; val y = p[1] + sin(a) * d * 0.85
+                val rot = a * 180 / PI + (r2.next() - 0.5) * 60; val sc = 0.8 + r2.next() * 0.45
+                val sh = floor(r2.next() * 4).toInt(); val z = r2.next()
+                leaves.add(Leaf(u, x, y, rot, sc, sh, z))
+            }
+        }
+        val sorted = leaves.sortedWith(compareBy<Leaf>({ it.sh }, { it.z }))
+        val r3 = Mulberry(5); val grass = ArrayList<DoubleArray>()
+        for (k in 0 until 18) { val gx = 12 + r3.next() * 76; val gh = 0.6 + r3.next() * 0.8; val gd = (r3.next() - 0.5) * 3; grass.add(doubleArrayOf(gx, gh, gd)) }
+        Sk(segs, sorted, grass)
+    }
+    private fun mixC(a: String, b: String, t: Double): Int {
+        val x = Color.parseColor(a); val y = Color.parseColor(b)
+        fun ch(sh: Int) = Math.round(((x shr sh) and 255) * (1 - t) + ((y shr sh) and 255) * t).toInt()
+        return Color.rgb(ch(16), ch(8), ch(0))
+    }
+    private val treeCache = HashMap<Int, Bitmap>()
+    private fun tree(idx: Int): Bitmap {
+        val i = idx.coerceIn(0, 9)
+        treeCache[i]?.let { return it }
+        val sc = 2f
+        val bmp = Bitmap.createBitmap((116 * sc).toInt(), (108 * sc).toInt(), Bitmap.Config.ARGB_8888)
+        val cv = Canvas(bmp); cv.scale(sc, sc); cv.translate(8f, -2f)
+        val t = i / 9.0
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.style = Paint.Style.FILL; p.color = mixC("#8b7b5f", "#3f7f34", t)
+        cv.drawOval(RectF(12f, 98f, 88f, 108f), p)
+        p.style = Paint.Style.STROKE; p.strokeCap = Paint.Cap.ROUND
+        p.strokeWidth = 1.1f; p.color = mixC("#7a8a40", "#5fb04a", t)
+        for (g in sk.grass.take(Math.round(t * 18).toInt())) {
+            cv.drawPath(Path().apply { moveTo(g[0].toFloat(), 104f); rQuadTo((g[2] / 2).toFloat(), -4f, g[2].toFloat(), (-5 * g[1]).toFloat()) }, p)
+        }
+        p.color = if (i == 0) Color.parseColor("#7d756a") else mixC("#6e5a46", "#4e3726", t)
+        for (g in sk.segs) { p.strokeWidth = (g[4] * (if (i == 0) 0.85 else 1.0)).toFloat(); cv.drawLine(g[0].toFloat(), g[1].toFloat(), g[2].toFloat(), g[3].toFloat(), p) }
+        val shades = intArrayOf(mixC("#8f9a4c", "#1f5a24", t), mixC("#a8b35c", "#2f7d2c", t), mixC("#bcc56e", "#45a03a", t), mixC("#d0d68a", "#74c653", t))
+        val vein = mixC("#6f7a38", "#174419", t); val ls = 0.5 + 0.5 * t
+        val leafPath = Path().apply { moveTo(0f, 0f); cubicTo(2f, -2.7f, 5.6f, -2.9f, 8.4f, 0f); cubicTo(5.6f, 2.9f, 2f, 2.7f, 0f, 0f); close() }
+        val vis = sk.leaves.filter { it.u < treeCov[i] }
+        p.strokeCap = Paint.Cap.BUTT
+        for (l in vis) {
+            cv.save(); cv.translate(l.x.toFloat(), l.y.toFloat()); cv.rotate(l.rot.toFloat()); val z = (l.s * ls).toFloat(); cv.scale(z, z)
+            p.style = Paint.Style.FILL; p.color = shades[l.sh]; cv.drawPath(leafPath, p)
+            p.style = Paint.Style.STROKE; p.color = vein; p.strokeWidth = .35f; cv.drawPath(leafPath, p)
+            p.strokeWidth = .4f; p.alpha = 204; cv.drawLine(.6f, 0f, 7.4f, 0f, p); p.alpha = 255
+            cv.restore()
+        }
+        fun dot(x: Double, y: Double, r: Float, fill: String, ring: String?) {
+            p.style = Paint.Style.FILL; p.color = Color.parseColor(fill); cv.drawCircle(x.toFloat(), y.toFloat(), r, p)
+            if (ring != null) { p.style = Paint.Style.STROKE; p.strokeWidth = .3f; p.color = Color.parseColor(ring); cv.drawCircle(x.toFloat(), y.toFloat(), r, p) }
+        }
+        if (i == 8) vis.filterIndexed { k, _ -> k % 9 == 4 }.forEach { dot(it.x + 2, it.y, 1.5f, "#fbe1ea", "#e9a9bc"); dot(it.x + 2, it.y, .5f, "#f0c04a", null) }
+        if (i == 9) vis.filterIndexed { k, _ -> k % 11 == 5 }.forEach { dot(it.x + 1.5, it.y + 1.5, 2.5f, "#d6402f", "#9e2a1e"); dot(it.x + .8, it.y + .7, .75f, "#ff9d86", null) }
+        treeCache[i] = bmp
+        return bmp
+    }
+
     private fun bar(progress: Double, track: Int, fill: Int): Bitmap {
         val w = 600; val h = 12
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -281,6 +368,15 @@ object Widgets {
         val moneyTxt = Notify.fmtMoney(n.money, fmt)
         val medalBmp = if (n.k >= 0) medal(j, n.k, 0) else if (n.kr >= 0) medal(j, n.kr, 1) else medal(j, 0, 2)
         rv.setImageViewBitmap(R.id.medal, medalBmp)
+        // health tree: current streak against the step days the app handed over (0, 1, 3, 7 ... 90)
+        val steps = j.optJSONArray("tree") ?: JSONArray()
+        var ti = 0
+        for (q in 0 until steps.length()) if (n.cur >= (steps.optJSONArray(q)?.optDouble(0) ?: 0.0) * DAY) ti = q
+        rv.setImageViewBitmap(R.id.tree, tree(ti))
+        rv.setContentDescription(R.id.tree, "Health: " + (steps.optJSONArray(ti)?.optString(1) ?: ""))
+        val unit = j.optString("unit", "drink").ifBlank { "drink" }
+        val skipped = floor(n.total / DAY * j.optDouble("dpd", 0.0)).toLong()
+        val skipTxt = if (j.optDouble("dpd", 0.0) > 0) "  ·  $skipped ${if (skipped == 1L) unit else if (unit == "glass") "glasses" else unit + "s"} skipped" else ""
         val t = ymdh(n.total)
         val timeLine = "${t[0]}y ${t[1]}m ${t[2]}d ${t[3]}h"
         val moneyLine = span("$moneyTxt saved" to pl.money, "  ·  " to pl.muted, "streak ${dur(n.cur)}" to pl.stat)
@@ -313,7 +409,7 @@ object Widgets {
             Kind.E -> {
                 rv.setTextColor(R.id.lbl, pl.muted)
                 ymdhCols()
-                tx(R.id.money, "$moneyTxt saved", pl.money)
+                tx(R.id.money, span("$moneyTxt saved" to pl.money, skipTxt to pl.stat), pl.money)
                 rv.setImageViewBitmap(R.id.bar, bar(n.progress, pl.line, pl.money))
                 tx(R.id.next, n.next, pl.muted)
                 stats()
@@ -328,7 +424,7 @@ object Widgets {
                 rv.setTextColor(R.id.lbl, pl.muted)
                 quote()
                 ymdhCols()
-                tx(R.id.money, "$moneyTxt saved", pl.money)
+                tx(R.id.money, span("$moneyTxt saved" to pl.money, skipTxt to pl.stat), pl.money)
                 rv.setImageViewBitmap(R.id.bar, bar(n.progress, pl.line, pl.money))
                 tx(R.id.next, n.next, pl.muted)
                 stats()

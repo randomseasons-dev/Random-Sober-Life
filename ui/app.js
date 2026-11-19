@@ -100,7 +100,7 @@ function pushWidget(now_) {
     Native.widget({
       start: sn.start, erased: sn.erased, streakStart: sn.streakStart, sLong: sn.sLong, sr: sn.sr, jr: sn.jr, maxTotal: sn.maxTotal,
       rates: rates(s), fmt: curFmt(s.cur), miles: MILESTONES.map((m) => [m[0], m[1]]), medals: MEDAL_COLS,
-      top: s.top, style: s.wstyle || 'app', col,
+      top: s.top, style: s.wstyle || 'app', col, dpd: Math.max(0, +s.dpd || 0), unit: drinkInfo(s).unit, tree: TREE.map((x) => [x[0], x[1]]),
       oDay: dayNo(now()), qOff: VIEW.qDay === dayNo(now()) ? VIEW.qOff : 0, rOff: VIEW.rDay === dayNo(now()) ? VIEW.rOff : 0,
     });
   };
@@ -157,8 +157,14 @@ function render() {
     .map(([v, l]) => `<div class="tu"><b>${v}</b><span>${l}</span></div>`).join('');
   const [m1, m2] = fmtMoney(D.money, ST.set.cur, D.avgRate / 86400);
   $('moneyMain').textContent = m1; $('moneyFrac').textContent = m2;
+  const u = drinkInfo(ST.set).unit, dpd = +ST.set.dpd || 0;
+  $('skipLine').classList.toggle('hidden', !(dpd > 0));
+  if (dpd > 0) $('skipLine').textContent = `${Math.floor(D.skipped).toLocaleString()} ${Math.floor(D.skipped) === 1 ? u : plural(u)} skipped`;
   const k = mileIndex(D.total), kr = mileIndex(D.reached);
-  $('btnMedal').innerHTML = k >= 0 ? medalSvg(k) : kr >= 0 ? medalSvg(kr, 'grey') : medalSvg(0, 'locked');
+  const mk = k >= 0 ? 'c' + k : kr >= 0 ? 'g' + kr : 'l';
+  if (render.mk !== mk) { render.mk = mk; $('btnMedal').innerHTML = k >= 0 ? medalSvg(k) : kr >= 0 ? medalSvg(kr, 'grey') : medalSvg(0, 'locked'); }
+  const ti = treeIndex(D.cur);
+  if (render.ti !== ti) { render.ti = ti; $('btnTree').innerHTML = treeSvg(ti); $('btnTree').title = 'Health: ' + TREE[ti][1]; }
   const nx = MILESTONES[k + 1];
   $('nextMile').textContent = nx ? `Next medal: ${nx[1]} in ${fmtDur(nx[0] * DAY - D.total)}` : 'Every medal earned. Keep going.';
   $('stCur').textContent = fmtDur(D.cur);
@@ -167,14 +173,15 @@ function render() {
   $('stSR').textContent = D.s.sr;
   $('stJR').textContent = D.s.jr;
   const set = ST.set;
-  if (set.x && set.acc) { $('stAcc').textContent = `${D.s.accEp === set.accEp ? D.s.accum : 0} / ${set.x}`; $('stAccL').textContent = 'Drinks until relapse'; }
+  if (set.x && set.acc) { $('stAcc').textContent = `${D.s.accEp === set.accEp ? D.s.accum : 0} / ${set.x}`; $('stAccL').textContent = cap(plural(drinkInfo(set).unit)) + ' until relapse'; }
   else { $('stAcc').textContent = ruleShort(set); $('stAccL').textContent = 'Drink rule'; }
   renderTop();
 }
 function yLabel(y) { return y === 'all' ? 'All' : y === 'streak' ? 'One streak' : y; }
 function ruleShort(set) { return `${set.x || 'Any'} → ${set.y === 'all' ? 'All' : set.y === 'streak' ? 'Streak' : set.y + 'd'}`; }
 function ruleText(set) {
-  const x = set.x ? `${set.x} drink${set.x > 1 ? 's' : ''}` : 'Any drink';
+  const u = drinkInfo(set).unit;
+  const x = set.x ? units(set.x, u) : 'Any ' + u;
   const y = set.y === 'all' ? 'resets the whole journey' : set.y === 'streak' ? 'erases the current streak' : `erases ${set.y} day${set.y > 1 ? 's' : ''}`;
   return `${x} ${y}${set.x && set.acc ? ' (accumulative)' : ''}.`;
 }
@@ -262,14 +269,14 @@ window.__rslReload = async () => {
 // ---------- log drinks ----------
 function openDrinks() {
   let n = 1;
-  const T = now(), D = derive(ST, T), di = drinkInfo(ST.set);
+  const T = now(), D = derive(ST, T), di = drinkInfo(ST.set), u = di.unit;
   const rows = ST.events.slice().reverse().map((e) => {
     const ef = D.effects[e.id] || {};
     const what = ef.all ? 'reset the journey' : ef.trig ? (ef.zero ? 'relapse, back to 0' : ef.erased ? `relapse, erased ${fmtDur(ef.erased)}` : 'relapse') : 'no erase';
-    return `<div class="hrow"><div class="ht">${esc(fmtWhen(e.t))}<div class="he">${e.n} drink${e.n > 1 ? 's' : ''} · ${what}</div></div>
+    return `<div class="hrow"><div class="ht">${esc(fmtWhen(e.t))}<div class="he">${units(e.n, u)} · ${what}</div></div>
       <button class="del" data-del="${e.id}" title="Delete and undo">&times;</button></div>`;
-  }).join('') || '<div class="hint">No drinks logged.</div>';
-  openModal('drinks', `${head('Log drinks')}
+  }).join('') || `<div class="hint">No ${plural(u)} logged.</div>`;
+  openModal('drinks', `${head('Log ' + plural(u))}
     <div class="sec">
       <div class="drink-in"><div id="spN"></div>
         <div class="when"><label>When</label><div class="when-row">
@@ -277,8 +284,8 @@ function openDrinks() {
           <select id="dH">${range(0, 23).map((h) => `<option value="${h}">${pad2(h)}</option>`).join('')}</select><b>:</b>
           <select id="dM">${range(0, 59).map((m) => `<option value="${m}">${pad2(m)}</option>`).join('')}</select>
           <button type="button" class="btn small ghost" id="dNow">Now</button></div></div></div>
-      <div class="hint">1 drink = ${esc(di.name)} (about ${di.g.toFixed(0)} g of alcohol).<br>Rule: ${esc(ruleText(ST.set))}</div>
-      <div class="row" style="margin-top:12px"><button class="btn red wide" id="dGo">Log drinks</button></div>
+      <div class="hint">1 ${esc(u)} = ${esc(di.name)} (about ${di.g.toFixed(0)} g of alcohol).<br>Rule: ${esc(ruleText(ST.set))}</div>
+      <div class="row" style="margin-top:12px"><button class="btn red wide" id="dGo">Log ${esc(plural(u))}</button></div>
     </div>
     <div class="sec"><h3>Last 5 entries</h3><div class="hist">${rows}</div>
       <div class="hint">Deleting an entry fully undoes what it did.</div></div>`, (sh) => {
@@ -301,7 +308,7 @@ function openDrinks() {
       const ef = derive(ST, now()).effects; const last = ST.events.find((e) => e.t === t && e.n === n);
       const r = last && ef[last.id];
       closeModal();
-      toast(r && r.trig ? (r.all ? 'Journey reset. A new start begins now.' : (r.zero ? 'Logged. Back to day one — keep going.' : 'Logged. Relapse counted — keep going.')) : `Logged ${n} drink${n > 1 ? 's' : ''}.`);
+      toast(r && r.trig ? (r.all ? 'Journey reset. A new start begins now.' : (r.zero ? 'Logged. Back to day one — keep going.' : 'Logged. Relapse counted — keep going.')) : `Logged ${units(n, u)}.`);
     };
     sh.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => {
       if (!confirm('Delete this entry and undo its effect?')) return;
@@ -327,6 +334,19 @@ function openMedals() {
     <div class="hint">Medals follow your total sober time. A medal you drop below stays, in black and white, until you reach it again.</div>`);
 }
 $('btnMedal').onclick = openMedals;
+
+// ---------- health tree ----------
+function openTree() {
+  const D = derive(ST, now()), cur = treeIndex(D.cur);
+  const rows = TREE.map((x, i) => {
+    const got = i <= cur, st = i === cur ? 'Now' : got ? 'Reached' : 'in ' + fmtDur(x[0] * DAY - D.cur);
+    return `<div class="mrow tree ${got ? 'got' : ''} ${i === cur ? 'now' : ''}">${treeSvg(i)}
+      <div><div class="mt">${i + 1}. ${esc(x[1])}</div><div class="mf">${x[0] ? 'Streak of ' + x[0] + ' day' + (x[0] > 1 ? 's' : '') : 'Streak under 1 day'} · ${esc(x[2])}</div></div><div class="ms">${st}</div></div>`;
+  }).join('');
+  openModal('tree', `${head('Health tree')}<div class="sec">${rows}</div>
+    <div class="hint">The tree follows your current streak only. It grows back from the start after a relapse, and is fully healthy at 90 days.</div>`);
+}
+$('btnTree').onclick = openTree;
 
 // ---------- number inputs with "," thousands separators ----------
 function fmtIn(v) {
@@ -398,18 +418,21 @@ ${Native.platform === 'android' ? `
       <div class="seg" id="segMode"><button data-v="avg">Average per day</button><button data-v="week">Each day of the week</button></div>
       <div id="mAvg" class="row">${moneyField('id="sDaily"', s.daily || 0)}</div>
       <div id="mWeek" class="week" style="margin-top:10px">${wk}</div>
-      <div class="hint">Money saved grows every second with your sober time; erased days take their money with them.</div></div>
+      <div class="row" style="margin-top:12px"><label class="grow" id="dpdL">Average drinks per day before quitting</label>${numField('id="sDpd" style="width:90px"', s.dpd || 0, true)}</div>
+      <div class="hint">Money saved grows every second with your sober time; erased days take their money with them.
+        The average per day also counts the drinks you have skipped (0 = don't show it).</div></div>
 
     <div class="sec"><h3>What is one drink</h3>
       <select id="sDrink" style="width:100%">${drOpts}</select>
       <div id="cust" class="row"><input id="cName" class="grow" placeholder="Name" value="${esc(s.custom.name)}">
         ${numField('id="cMl" style="width:90px"', s.custom.ml)}<label>ml</label>
         <input id="cAbv" type="text" inputmode="decimal" style="width:80px" value="${s.custom.abv}"><label>%</label></div>
+      <div id="custU" class="row"><label>Counted as</label><select id="cUnit" class="grow">${UNITS.map((x) => `<option value="${x}" ${(s.custom.unit || 'drink') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
       <div class="hint" id="drDesc"></div></div>
 
     <div class="sec"><h3>Drink rule</h3>
-      <div class="rule"><span id="spX"></span><span>drinks will erase</span><span id="spY"></span><span>days in stats.</span></div>
-      <div class="row" style="justify-content:center"><label class="chk"><input type="checkbox" id="sAcc" ${s.acc ? 'checked' : ''}> Drinks are accumulative</label></div>
+      <div class="rule"><span id="spX"></span><span id="ruleU">drinks will erase</span><span id="spY"></span><span>days in stats.</span></div>
+      <div class="row" style="justify-content:center"><label class="chk"><input type="checkbox" id="sAcc" ${s.acc ? 'checked' : ''}> <span id="accU">Drinks</span> are accumulative</label></div>
       <div class="hint" id="ruleHint"></div></div>
 
     <div class="sec"><h3>Daily summary</h3>
@@ -451,23 +474,28 @@ ${Native.platform === 'android' ? `
     paintCur(sh, s.cur);
     const drUi = () => {
       sh.querySelector('#cust').classList.toggle('hidden', s.drink !== 'custom');
-      const d = DRINKS.find((x) => x[0] === s.drink), di = drinkInfo(s);
+      sh.querySelector('#custU').classList.toggle('hidden', s.drink !== 'custom');
+      const d = DRINKS.find((x) => x[0] === s.drink), di = drinkInfo(s), pu = plural(di.unit);
+      sh.querySelector('#dpdL').textContent = `Average ${pu} per day before quitting`;
+      sh.querySelector('#ruleU').textContent = `${pu} will erase`;
+      sh.querySelector('#accU').textContent = cap(pu);
+      if (sh.querySelector('#ruleHint').innerHTML) ruleUi();
       sh.querySelector('#drDesc').textContent = (d ? d[4] + ' ' : di.desc + '. ') + `About ${di.g.toFixed(1)} g of pure alcohol (${(di.g / 10).toFixed(1)} standard drinks).`;
     };
     const cust = () => {
-      s.custom = { name: sh.querySelector('#cName').value.slice(0, 40) || 'My drink', ml: clamp(parseIn(sh.querySelector('#cMl').value), 1, 5000), abv: clamp(+sh.querySelector('#cAbv').value || 0, 0.1, 96) };
+      s.custom = { name: sh.querySelector('#cName').value.slice(0, 40) || 'My drink', ml: clamp(parseIn(sh.querySelector('#cMl').value), 1, 5000), abv: clamp(+sh.querySelector('#cAbv').value || 0, 0.1, 96), unit: sh.querySelector('#cUnit').value };
       drUi();
     };
     sh.querySelector('#sDrink').onchange = (e) => { s.drink = e.target.value; drUi(); };
-    ['#cName', '#cMl', '#cAbv'].forEach((q) => (sh.querySelector(q).onchange = cust));
-    drUi();
-    const ruleUi = () => {
+    ['#cName', '#cMl', '#cAbv', '#cUnit'].forEach((q) => (sh.querySelector(q).onchange = cust));
+    function ruleUi() {
       sh.querySelector('#sAcc').disabled = !s.x;
       const D2 = derive(ST, now());
       sh.querySelector('#ruleHint').innerHTML = esc(ruleText(s)) + (s.x && s.acc ? ` Counted so far: ${D2.s.accEp === s.accEp ? D2.s.accum : 0}.` : '') +
-        '<br>X = Any: any amount triggers it. Y = All: the whole journey resets. One streak: the current streak is taken off.' +
-        ' Ticking accumulative: uncounted drinks will be saved for the next relapse.';
-    };
+        `<br>X = Any: any amount triggers it. Y = All: the whole journey resets. One streak: the current streak is taken off.` +
+        ` Ticking accumulative: uncounted ${esc(plural(drinkInfo(s).unit))} will be saved for the next relapse.`;
+    }
+    drUi();
     sh.querySelector('#spX').appendChild(spinner([0, ...range(1, 30)], s.x, (v) => { s.x = v; ruleUi(); }, (v) => (v ? v : 'Any')));
     const yv = ['all', 'streak', ...range(1, 30)];
     sh.querySelector('#spY').appendChild(spinner(yv, Math.max(0, yv.indexOf(s.y)), (v) => { s.y = v; ruleUi(); }, yLabel));
@@ -496,6 +524,7 @@ ${Native.platform === 'android' ? `
     };
     sh.querySelector('#sDone').onclick = () => {
       s.daily = money(sh.querySelector('#sDaily').value);
+      s.dpd = clamp(Math.round(parseIn(sh.querySelector('#sDpd').value) * 100) / 100, 0, 100);
       sh.querySelectorAll('[data-wd]').forEach((inp) => (s.week[+inp.dataset.wd] = money(inp.value)));
       cust();
       const askN = s.notify && !ST.set.notify;
