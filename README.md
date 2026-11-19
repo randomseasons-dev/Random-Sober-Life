@@ -5,12 +5,12 @@ Everything stays on your devices — no account, no tracking. The two apps can s
 
 ## Main screen
 
-- **Top:** a gentle quote of the day (1,100+ soft, caring quotes about the inner journey, peace and growth, in a fixed
+- **Top:** a gentle quote of the day (2,400+ real quotes — over half in a quiet, reflective tone about fear, choices, trust and letting go — in a fixed
   shuffled order), or a **daily recovery reflection** (100 short, kind notes for the day), or off.
   The arrows browse; the next day jumps back to that day's quote or reflection.
 - **Middle:** total sober time as **Years · Months · Days · Hours**, a medal for the latest milestone, and the money saved,
   growing every second.
-- **Bottom:** current streak, longest streak, average streak, streak resets, journey resets.
+- **Bottom:** current streak, longest streak, average streak, relapses, journey resets.
 - **Red + button:** log how many drinks and when (Day · Hour · Minute lists, defaults to now, with a Now button). The last 5 entries are listed; deleting one fully undoes it.
 
 ## Android home-screen widgets

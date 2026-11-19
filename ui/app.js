@@ -101,6 +101,7 @@ function pushWidget(now_) {
       start: sn.start, erased: sn.erased, streakStart: sn.streakStart, sLong: sn.sLong, sr: sn.sr, jr: sn.jr, maxTotal: sn.maxTotal,
       rates: rates(s), fmt: curFmt(s.cur), miles: MILESTONES.map((m) => [m[0], m[1]]), medals: MEDAL_COLS,
       top: s.top, style: s.wstyle || 'app', col,
+      oDay: dayNo(now()), qOff: VIEW.qDay === dayNo(now()) ? VIEW.qOff : 0, rOff: VIEW.rDay === dayNo(now()) ? VIEW.rOff : 0,
     });
   };
   if (now_) go(); else pushWidget.h = setTimeout(go, 300);
@@ -142,8 +143,10 @@ function renderTop() {
   body.innerHTML = `<div class="rf-title">${esc(r[0])}</div><div class="rf-text">${esc(r[1])}</div>`;
   info.textContent = VIEW.rOff === 0 ? 'Reflection of the day' : (VIEW.rOff > 0 ? '+' : '') + VIEW.rOff + ' from today';
 }
-$('topPrev').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff--; else VIEW.rOff--; renderTop(); };
-$('topNext').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff++; else VIEW.rOff++; renderTop(); };
+// browsing is remembered for the day (and shown on the Android widget too)
+function saveBrowse() { LOC.qOff = VIEW.qOff; LOC.rOff = VIEW.rOff; LOC.oDay = dayNo(now()); persist(); }
+$('topPrev').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff--; else VIEW.rOff--; renderTop(); saveBrowse(); };
+$('topNext').onclick = () => { if (ST.set.top === 'quotes') VIEW.qOff++; else VIEW.rOff++; renderTop(); saveBrowse(); };
 
 function mileIndex(ms) { let k = -1; MILESTONES.forEach((m, i) => { if (ms >= m[0] * DAY) k = i; }); return k; }
 function render() {
@@ -164,7 +167,7 @@ function render() {
   $('stSR').textContent = D.s.sr;
   $('stJR').textContent = D.s.jr;
   const set = ST.set;
-  if (set.x && set.acc) { $('stAcc').textContent = `${D.s.accEp === set.accEp ? D.s.accum : 0} / ${set.x}`; $('stAccL').textContent = 'Drinks counted'; }
+  if (set.x && set.acc) { $('stAcc').textContent = `${D.s.accEp === set.accEp ? D.s.accum : 0} / ${set.x}`; $('stAccL').textContent = 'Drinks until relapse'; }
   else { $('stAcc').textContent = ruleShort(set); $('stAccL').textContent = 'Drink rule'; }
   renderTop();
 }
@@ -262,7 +265,7 @@ function openDrinks() {
   const T = now(), D = derive(ST, T), di = drinkInfo(ST.set);
   const rows = ST.events.slice().reverse().map((e) => {
     const ef = D.effects[e.id] || {};
-    const what = ef.all ? 'reset the journey' : ef.trig ? (ef.erased ? `erased ${fmtDur(ef.erased)}` : 'streak reset') : 'no erase';
+    const what = ef.all ? 'reset the journey' : ef.trig ? (ef.zero ? 'relapse, back to 0' : ef.erased ? `relapse, erased ${fmtDur(ef.erased)}` : 'relapse') : 'no erase';
     return `<div class="hrow"><div class="ht">${esc(fmtWhen(e.t))}<div class="he">${e.n} drink${e.n > 1 ? 's' : ''} · ${what}</div></div>
       <button class="del" data-del="${e.id}" title="Delete and undo">&times;</button></div>`;
   }).join('') || '<div class="hint">No drinks logged.</div>';
@@ -298,7 +301,7 @@ function openDrinks() {
       const ef = derive(ST, now()).effects; const last = ST.events.find((e) => e.t === t && e.n === n);
       const r = last && ef[last.id];
       closeModal();
-      toast(r && r.trig ? (r.all ? 'Journey reset. A new start begins now.' : 'Logged. Streak reset — keep going.') : `Logged ${n} drink${n > 1 ? 's' : ''}.`);
+      toast(r && r.trig ? (r.all ? 'Journey reset. A new start begins now.' : (r.zero ? 'Logged. Back to day one — keep going.' : 'Logged. Relapse counted — keep going.')) : `Logged ${n} drink${n > 1 ? 's' : ''}.`);
     };
     sh.querySelectorAll('[data-del]').forEach((b) => (b.onclick = () => {
       if (!confirm('Delete this entry and undo its effect?')) return;
@@ -463,7 +466,7 @@ ${Native.platform === 'android' ? `
       const D2 = derive(ST, now());
       sh.querySelector('#ruleHint').innerHTML = esc(ruleText(s)) + (s.x && s.acc ? ` Counted so far: ${D2.s.accEp === s.accEp ? D2.s.accum : 0}.` : '') +
         '<br>X = Any: any amount triggers it. Y = All: the whole journey resets. One streak: the current streak is taken off.' +
-        ' Ticking accumulative: uncounted drinks will be saved for the next erasement.';
+        ' Ticking accumulative: uncounted drinks will be saved for the next relapse.';
     };
     sh.querySelector('#spX').appendChild(spinner([0, ...range(1, 30)], s.x, (v) => { s.x = v; ruleUi(); }, (v) => (v ? v : 'Any')));
     const yv = ['all', 'streak', ...range(1, 30)];
@@ -712,6 +715,7 @@ function openSetup() {
       if (j.st && j.st.snap) { ST = j.st; if (!ST.edit) ST.edit = (ST.set && ST.set.ts) || ST.snap.gen; ST.set = Object.assign(defaultSettings(), ST.set || {}); ST.events = ST.events || []; ST.dead = ST.dead || []; normalize(ST); }
     } catch (e) {}
   }
+  { const td = dayNo(now()); if (LOC.oDay === td) { VIEW.qDay = VIEW.rDay = td; VIEW.qOff = LOC.qOff || 0; VIEW.rOff = LOC.rOff || 0; } }
   if (!ST) {
     const bk = await Native.findBackup();          // Windows: a reinstall finds its automatic backup
     if (bk) restoreFrom(bk, false);

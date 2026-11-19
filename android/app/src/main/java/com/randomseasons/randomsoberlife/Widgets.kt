@@ -142,7 +142,7 @@ object Widgets {
             next = "Next medal: ${nx.optString(1)} in ${dur(nd - total)}"
             prog = if (nd > pd) ((total - pd) / (nd - pd)).coerceIn(0.0, 1.0) else 0.0
         } else { next = "Every medal earned. Keep going."; prog = 1.0 }
-        return Now(total, cur, max(j.optDouble("sLong", 0.0), cur), money, j.optInt("sr", 0) + j.optInt("jr", 0), k, kr, next, prog)
+        return Now(total, cur, max(j.optDouble("sLong", 0.0), cur), money, j.optInt("sr", 0), k, kr, next, prog)
     }
 
     private fun dur(ms: Double): String {
@@ -172,19 +172,21 @@ object Widgets {
     }
 
     // ---------- quote / reflection of the day (same pick as the app: day number mod list length) ----------
-    private fun quoteOfDay(c: Context, top: String): Pair<String, String> {
+    private fun quoteOfDay(c: Context, top: String, j: JSONObject): Pair<String, String> {
         val k = Calendar.getInstance()
         k.set(Calendar.HOUR_OF_DAY, 0); k.set(Calendar.MINUTE, 0); k.set(Calendar.SECOND, 0); k.set(Calendar.MILLISECOND, 0)
         val day = floor(k.timeInMillis / DAY + 0.5).toLong()
         val refl = top == "reflection"
+        // the quote the app is showing: today's pick plus how far it was browsed today
+        val off = if (j.optLong("oDay", -1) == day) j.optLong(if (refl) "rOff" else "qOff", 0) else 0L
         val p = prefs(c)
-        val tag = "$day|$refl|2"
+        val tag = "$day|$refl|$off|3"
         if (p.getString("qTag", "") == tag) return (p.getString("qText", "") ?: "") to (p.getString("qBy", "") ?: "")
         return try {
             val src = c.assets.open(if (refl) "reflections.js" else "quotes.js").use { it.readBytes().toString(Charsets.UTF_8) }
             val arr = JSONArray(src.substring(src.indexOf("=[") + 1, src.lastIndexOf(']') + 1))
             val n = arr.length()
-            val it = arr.getJSONArray((((day % n) + n) % n).toInt())
+            val it = arr.getJSONArray(((((day + off) % n) + n) % n).toInt())
             val out = if (refl) it.optString(1) to it.optString(0) else "“${it.optString(0)}”" to "— ${it.optString(1)}"
             p.edit().putString("qTag", tag).putString("qText", out.first).putString("qBy", out.second).apply()
             out
@@ -288,9 +290,9 @@ object Widgets {
             for (q in 0..3) { tx(ids[q], t[q].toString(), pl.text); rv.setTextColor(labs[q], pl.muted) }
         }
         fun stats() = tx(R.id.stats, span("Current " to pl.text, dur(n.cur) to pl.stat, "   Longest " to pl.text, dur(n.longest) to pl.stat,
-            "   Resets " to pl.text, n.resets.toString() to pl.stat), pl.text)
+            "   Relapses " to pl.text, n.resets.toString() to pl.stat), pl.text)
         fun quote() {
-            val (q, by) = quoteOfDay(c, j.optString("top", "quotes"))
+            val (q, by) = quoteOfDay(c, j.optString("top", "quotes"), j)
             tx(R.id.quote, q, pl.quote); tx(R.id.by, by, pl.muted)
         }
         when (kind) {

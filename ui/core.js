@@ -107,7 +107,7 @@ function applyEv(s, e) {
     s.accum += e.n;
     while (s.accum >= e.x) { s.accum -= e.x; trig++; }
   } else if (e.n >= e.x) trig = 1;
-  let erased = 0, all = false;
+  let erased = 0, all = false, zero = false;
   for (let i = 0; i < trig; i++) {
     const L = Math.max(0, t - s.streakStart);
     if (i === 0) { s.sCount++; s.sSum += L; s.sLong = Math.max(s.sLong, L); }
@@ -118,11 +118,13 @@ function applyEv(s, e) {
       s.erased = Math.min(s.erased, Math.max(0, t - s.start));
       s.sr++;
       erased += s.erased - before;
+      // the relapse took the sober time down to 0: that is also a journey reset
+      if (t - s.start - before > 0 && t - s.start - s.erased <= 0) { s.jr++; zero = true; }
     }
     s.streakStart = t;
   }
   s.lastT = Math.max(s.lastT || 0, t);
-  return { trig, erased, all };
+  return { trig, erased, all, zero };
 }
 function sortEvents(ev) { ev.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1)); }
 // drop deleted entries, sort, fold everything beyond the newest 5 into the snapshot
