@@ -162,9 +162,9 @@ function render() {
   if (dpd > 0) $('skipLine').textContent = `${Math.floor(D.skipped).toLocaleString()} ${Math.floor(D.skipped) === 1 ? u : plural(u)} skipped`;
   const k = mileIndex(D.total), kr = mileIndex(D.reached);
   const mk = k >= 0 ? 'c' + k : kr >= 0 ? 'g' + kr : 'l';
-  if (render.mk !== mk) { render.mk = mk; $('btnMedal').innerHTML = k >= 0 ? medalSvg(k) : kr >= 0 ? medalSvg(kr, 'grey') : medalSvg(0, 'locked'); }
+  if (render.mk !== mk) { render.mk = mk; $('medalArt').innerHTML = k >= 0 ? medalSvg(k) : kr >= 0 ? medalSvg(kr, 'grey') : medalSvg(0, 'locked'); $('medalLbl').textContent = k >= 0 ? MILESTONES[k][1] : 'No medal yet'; }
   const ti = treeIndex(D.cur);
-  if (render.ti !== ti) { render.ti = ti; $('btnTree').innerHTML = treeSvg(ti); $('btnTree').title = 'Health: ' + TREE[ti][1]; }
+  if (render.ti !== ti) { render.ti = ti; $('treeArt').innerHTML = treeSvg(ti); $('treeLbl').textContent = TREE[ti][1]; }
   const nx = MILESTONES[k + 1];
   $('nextMile').textContent = nx ? `Next medal: ${nx[1]} in ${fmtDur(nx[0] * DAY - D.total)}` : 'Every medal earned. Keep going.';
   $('stCur').textContent = fmtDur(D.cur);
@@ -173,8 +173,7 @@ function render() {
   $('stSR').textContent = D.s.sr;
   $('stJR').textContent = D.s.jr;
   const set = ST.set;
-  if (set.x && set.acc) { $('stAcc').textContent = `${D.s.accEp === set.accEp ? D.s.accum : 0} / ${set.x}`; $('stAccL').textContent = cap(plural(drinkInfo(set).unit)) + ' until relapse'; }
-  else { $('stAcc').textContent = ruleShort(set); $('stAccL').textContent = 'Drink rule'; }
+  $('stDn').textContent = (D.s.dn || 0).toLocaleString(); $('stDnL').textContent = cap(plural(drinkInfo(set).unit)) + ' logged';
   renderTop();
 }
 function yLabel(y) { return y === 'all' ? 'All' : y === 'streak' ? 'One streak' : y; }
@@ -183,7 +182,7 @@ function ruleText(set) {
   const u = drinkInfo(set).unit;
   const x = set.x ? units(set.x, u) : 'Any ' + u;
   const y = set.y === 'all' ? 'resets the whole journey' : set.y === 'streak' ? 'erases the current streak' : `erases ${set.y} day${set.y > 1 ? 's' : ''}`;
-  return `${x} ${y}${set.x && set.acc ? ' (accumulative)' : ''}.`;
+  return `${x} ${y}.`;
 }
 
 // ---------- spinner (up/down arrows + wheel + swipe) ----------
@@ -303,7 +302,7 @@ function openDrinks() {
       if (t > T2 || isNow) t = T2;
       if (t < D2.minT) { toast('The time can’t be before your last entry or the journey start.'); return; }
       const s = ST.set;
-      ST.events.push({ id: rid(), t, n, x: s.x, y: s.y, acc: !!s.acc, ep: s.accEp, dev: LOC.dev });
+      ST.events.push({ id: rid(), t, n, x: s.x, y: s.y, acc: false, ep: s.accEp || 0, dev: LOC.dev });
       changed();
       const ef = derive(ST, now()).effects; const last = ST.events.find((e) => e.t === t && e.n === n);
       const r = last && ef[last.id];
@@ -432,7 +431,6 @@ ${Native.platform === 'android' ? `
 
     <div class="sec"><h3>Drink rule</h3>
       <div class="rule"><span id="spX"></span><span id="ruleU">drinks will erase</span><span id="spY"></span><span>days in stats.</span></div>
-      <div class="row" style="justify-content:center"><label class="chk"><input type="checkbox" id="sAcc" ${s.acc ? 'checked' : ''}> <span id="accU">Drinks</span> are accumulative</label></div>
       <div class="hint" id="ruleHint"></div></div>
 
     <div class="sec"><h3>Daily summary</h3>
@@ -478,7 +476,6 @@ ${Native.platform === 'android' ? `
       const d = DRINKS.find((x) => x[0] === s.drink), di = drinkInfo(s), pu = plural(di.unit);
       sh.querySelector('#dpdL').textContent = `Average ${pu} per day before quitting`;
       sh.querySelector('#ruleU').textContent = `${pu} will erase`;
-      sh.querySelector('#accU').textContent = cap(pu);
       if (sh.querySelector('#ruleHint').innerHTML) ruleUi();
       sh.querySelector('#drDesc').textContent = (d ? d[4] + ' ' : di.desc + '. ') + `About ${di.g.toFixed(1)} g of pure alcohol (${(di.g / 10).toFixed(1)} standard drinks).`;
     };
@@ -489,18 +486,15 @@ ${Native.platform === 'android' ? `
     sh.querySelector('#sDrink').onchange = (e) => { s.drink = e.target.value; drUi(); };
     ['#cName', '#cMl', '#cAbv', '#cUnit'].forEach((q) => (sh.querySelector(q).onchange = cust));
     function ruleUi() {
-      sh.querySelector('#sAcc').disabled = !s.x;
-      const D2 = derive(ST, now());
-      sh.querySelector('#ruleHint').innerHTML = esc(ruleText(s)) + (s.x && s.acc ? ` Counted so far: ${D2.s.accEp === s.accEp ? D2.s.accum : 0}.` : '') +
+      sh.querySelector('#ruleHint').innerHTML = esc(ruleText(s)) + ' Each entry counts as a whole: reaching the limit is one relapse and the streak starts again.' +
         `<br>X = Any: any amount triggers it. Y = All: the whole journey resets. One streak: the current streak is taken off.` +
-        ` Ticking accumulative: uncounted ${esc(plural(drinkInfo(s).unit))} will be saved for the next relapse.`;
+        ``;
     }
     drUi();
     sh.querySelector('#spX').appendChild(spinner([0, ...range(1, 30)], s.x, (v) => { s.x = v; ruleUi(); }, (v) => (v ? v : 'Any')));
     const yv = ['all', 'streak', ...range(1, 30)];
     sh.querySelector('#spY').appendChild(spinner(yv, Math.max(0, yv.indexOf(s.y)), (v) => { s.y = v; ruleUi(); }, yLabel));
     // unticking clears the counted drinks (new epoch); ticking back inside the same draft keeps the saved epoch
-    sh.querySelector('#sAcc').onchange = (e) => { s.acc = e.target.checked; s.accEp = !s.acc && ST.set.acc ? (ST.set.accEp || 0) + 1 : ST.set.accEp || 0; ruleUi(); };
     ruleUi();
     sh.querySelector('#sNot').onchange = (e) => (s.notify = e.target.checked);
     sh.querySelector('#sNt').onchange = (e) => { const [h, m] = (e.target.value || '08:00').split(':'); s.nh = clamp(+h || 0, 0, 23); s.nm = clamp(+m || 0, 0, 59); };
@@ -525,6 +519,7 @@ ${Native.platform === 'android' ? `
     sh.querySelector('#sDone').onclick = () => {
       s.daily = money(sh.querySelector('#sDaily').value);
       s.dpd = clamp(Math.round(parseIn(sh.querySelector('#sDpd').value) * 100) / 100, 0, 100);
+      s.acc = false;                     // 1.7: accumulative drinks removed
       sh.querySelectorAll('[data-wd]').forEach((inp) => (s.week[+inp.dataset.wd] = money(inp.value)));
       cust();
       const askN = s.notify && !ST.set.notify;

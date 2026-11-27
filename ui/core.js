@@ -111,7 +111,7 @@ function defaultSettings() {
 }
 function newSnap(start) {
   return { gen: now(), start, lastT: start, erased: 0, streakStart: start, sCount: 0, sSum: 0, sLong: 0,
-    sr: 0, jr: 0, accum: 0, accEp: 0, maxTotal: 0, folded: 0, fids: [] };
+    sr: 0, jr: 0, accum: 0, accEp: 0, maxTotal: 0, folded: 0, fids: [], dn: 0 };
 }
 function newState(start, set) { return { snap: newSnap(start), events: [], dead: [], set: set || defaultSettings() }; }
 
@@ -120,9 +120,10 @@ function newState(start, set) { return { snap: newSnap(start), events: [], dead:
 function applyEv(s, e) {
   const t = Math.max(e.t, s.start);
   s.maxTotal = Math.max(s.maxTotal, Math.max(0, t - s.start - s.erased));
+  s.dn = (s.dn || 0) + (+e.n || 0);                      // drink count: every unit ever logged
   let trig = 0;
   if (!e.x) trig = 1;                                   // X = Any
-  else if (e.acc) {
+  else if (e.acc) {                                     // only entries logged before 1.7 can be accumulative
     if (e.ep !== s.accEp) { s.accum = 0; s.accEp = e.ep; }   // accumulative restarted (unticked + ticked again)
     s.accum += e.n;
     while (s.accum >= e.x) { s.accum -= e.x; trig++; }
